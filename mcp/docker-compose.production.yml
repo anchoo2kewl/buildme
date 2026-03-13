@@ -1,0 +1,10 @@
+services:
+  buildme-mcp:
+    image: harbor.biswas.me/biswas/buildme-mcp:latest
+    ports:
+      - "13426:3001"
+    environment:
+      - BUILDME_API_URL=http://host.docker.internal:13425
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

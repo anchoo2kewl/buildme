@@ -82,11 +82,75 @@ jobs:
               curl -sf http://127.0.0.1:13425/health && echo ' Deploy OK' || echo ' Deploy FAILED'
             "
 
+  build-and-deploy-mcp:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - checkout
+      - setup_remote_docker
+
+      - run:
+          name: Set build metadata
+          command: |
+            echo "export VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo '0.0.0-${CIRCLE_SHA1:0:7}')" >> "$BASH_ENV"
+            echo "export GIT_COMMIT=${CIRCLE_SHA1:0:7}" >> "$BASH_ENV"
+            echo "export BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$BASH_ENV"
+            echo "export TAG=git-${CIRCLE_SHA1:0:7}" >> "$BASH_ENV"
+            echo "export IMAGE_NAME=harbor.biswas.me/biswas/buildme-mcp" >> "$BASH_ENV"
+
+      - run:
+          name: Login to Harbor
+          command: |
+            HARBOR_USERNAME=$(echo "$HARBOR_AUTH" | base64 -d | cut -d: -f1)
+            HARBOR_PASSWORD=$(echo "$HARBOR_AUTH" | base64 -d | cut -d: -f2)
+            echo "$HARBOR_PASSWORD" | docker login harbor.biswas.me -u "$HARBOR_USERNAME" --password-stdin
+
+      - run:
+          name: Build and push MCP Docker image
+          command: |
+            docker build \
+              --build-arg "VERSION=$VERSION" \
+              --build-arg "COMMIT=$GIT_COMMIT" \
+              --build-arg "BUILD_TIME=$BUILD_TIME" \
+              -t "$IMAGE_NAME:$TAG" \
+              -t "$IMAGE_NAME:latest" \
+              mcp/
+            docker push "$IMAGE_NAME:$TAG"
+            docker push "$IMAGE_NAME:latest"
+
+      - run:
+          name: Setup SSH key
+          command: |
+            mkdir -p ~/.ssh
+            echo "$DEPLOY_SSH_KEY" | base64 -d > ~/.ssh/deploy_key
+            chmod 600 ~/.ssh/deploy_key
+            ssh-keyscan -H 31.97.102.48 >> ~/.ssh/known_hosts 2>/dev/null
+      - run:
+          name: Deploy MCP to production
+          command: |
+            HARBOR_USERNAME=$(echo "$HARBOR_AUTH" | base64 -d | cut -d: -f1)
+            HARBOR_PASSWORD=$(echo "$HARBOR_AUTH" | base64 -d | cut -d: -f2)
+
+            ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ubuntu@31.97.102.48 "\
+              echo '${HARBOR_PASSWORD}' | docker login harbor.biswas.me -u '${HARBOR_USERNAME}' --password-stdin && \
+              cd /opt/buildme-mcp && \
+              docker compose -f docker-compose.production.yml pull && \
+              docker compose -f docker-compose.production.yml up -d --no-build && \
+              sleep 3 && \
+              curl -sf http://127.0.0.1:13426/health && echo ' MCP Deploy OK' || echo ' MCP Deploy FAILED'
+            "
+
 workflows:
   build-deploy:
     jobs:
       - test
       - build-and-deploy:
+          requires:
+            - test
+          filters:
+            branches:
+              only: main
+      - build-and-deploy-mcp:
           requires:
             - test
           filters:

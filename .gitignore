@@ -5,6 +5,7 @@ buildme-*
 *.db-shm
 .env
 frontend/node_modules/
+mcp/node_modules/
 frontend/server/
 frontend/.qwik/
 /server
