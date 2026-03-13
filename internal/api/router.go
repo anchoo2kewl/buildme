@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/anchoo2kewl/buildme/internal/config"
 	"github.com/anchoo2kewl/buildme/internal/models"
@@ -40,6 +41,7 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 	memberH := &MemberHandler{store: s}
 	channelH := &ChannelHandler{store: s}
 	wsH := &WSHandler{hub: hub}
+	syncH := &SyncHandler{store: s, cfg: cfg, client: &http.Client{Timeout: 30 * time.Second}}
 
 	// Health + version
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -71,6 +73,10 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 		r.Post("/api/invites", authH.CreateInvite)
 		r.Get("/api/invites", authH.ListInvites)
 
+		// Dashboard + Sync
+		r.Get("/api/dashboard", syncH.Dashboard)
+		r.Post("/api/sync", syncH.SyncAll)
+
 		// Projects (user-level)
 		r.Get("/api/projects", projectH.List)
 		r.Post("/api/projects", projectH.Create)
@@ -92,6 +98,7 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 			// Builds (viewer+)
 			r.Get("/builds", buildH.List)
 			r.Get("/builds/{buildId}", buildH.Get)
+			r.Post("/sync", syncH.SyncProject)
 
 			// Providers (admin+)
 			r.Group(func(r chi.Router) {

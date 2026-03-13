@@ -38,6 +38,15 @@ func (h *BuildHandler) List(w http.ResponseWriter, r *http.Request) {
 		builds = []models.Build{}
 	}
 
+	// Load jobs for each build
+	for i := range builds {
+		jobs, _ := h.store.ListBuildJobs(r.Context(), builds[i].ID)
+		if jobs == nil {
+			jobs = []models.BuildJob{}
+		}
+		builds[i].Jobs = jobs
+	}
+
 	jsonResp(w, http.StatusOK, map[string]any{
 		"builds": builds,
 		"total":  total,

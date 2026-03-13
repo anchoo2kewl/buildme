@@ -1,0 +1,501 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/anchoo2kewl/buildme/internal/config"
+	"github.com/anchoo2kewl/buildme/internal/models"
+	"github.com/anchoo2kewl/buildme/internal/store"
+	"github.com/go-chi/chi/v5"
+)
+
+type SyncHandler struct {
+	store  store.Store
+	cfg    *config.Config
+	client *http.Client
+}
+
+// Branch-to-environment mapping
+var branchEnvMap = map[string]string{
+	"main":       "staging",
+	"uat":        "uat",
+	"production": "production",
+}
+
+// SyncAll fetches latest builds for all projects across all branches.
+func (h *SyncHandler) SyncAll(w http.ResponseWriter, r *http.Request) {
+	user := UserFromCtx(r.Context())
+	projects, err := h.store.ListProjectsForUser(r.Context(), user.ID)
+	if err != nil {
+		jsonError(w, "failed to list projects", http.StatusInternalServerError)
+		return
+	}
+
+	type projectResult struct {
+		Project  models.Project           `json:"project"`
+		Branches map[string]*BranchStatus `json:"branches"`
+	}
+
+	results := make([]projectResult, 0, len(projects))
+	for _, p := range projects {
+		providers, err := h.store.ListCIProviders(r.Context(), p.ID)
+		if err != nil || len(providers) == 0 {
+			continue
+		}
+		prov := providers[0]
+		branches := h.syncProjectBranches(r.Context(), p.ID, prov)
+		results = append(results, projectResult{Project: p, Branches: branches})
+	}
+
+	jsonResp(w, http.StatusOK, results)
+}
+
+// SyncProject fetches latest builds for one project.
+func (h *SyncHandler) SyncProject(w http.ResponseWriter, r *http.Request) {
+	projectID, _ := strconv.ParseInt(chi.URLParam(r, "projectId"), 10, 64)
+	providers, err := h.store.ListCIProviders(r.Context(), projectID)
+	if err != nil || len(providers) == 0 {
+		jsonError(w, "no providers configured", http.StatusBadRequest)
+		return
+	}
+
+	prov := providers[0]
+	branches := h.syncProjectBranches(r.Context(), projectID, prov)
+	jsonResp(w, http.StatusOK, branches)
+}
+
+// Dashboard returns the latest build per project per branch from the DB (no sync).
+func (h *SyncHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
+	user := UserFromCtx(r.Context())
+	projects, err := h.store.ListProjectsForUser(r.Context(), user.ID)
+	if err != nil {
+		jsonError(w, "failed to list projects", http.StatusInternalServerError)
+		return
+	}
+
+	type dashEntry struct {
+		Project models.Project `json:"project"`
+		Builds  []models.Build `json:"builds"`
+	}
+
+	results := make([]dashEntry, 0, len(projects))
+	for _, p := range projects {
+		builds, _, _ := h.store.ListBuilds(r.Context(), p.ID, models.BuildFilter{
+			Pagination: models.Pagination{Page: 1, PerPage: 10},
+		})
+		if builds == nil {
+			builds = []models.Build{}
+		}
+		results = append(results, dashEntry{Project: p, Builds: builds})
+	}
+	jsonResp(w, http.StatusOK, results)
+}
+
+// BranchStatus holds the build info for one branch.
+type BranchStatus struct {
+	Branch    string          `json:"branch"`
+	Env       string          `json:"env"`
+	CommitSHA string          `json:"commit_sha"`
+	Build     *models.Build   `json:"build,omitempty"`
+	Jobs      []models.BuildJob `json:"jobs,omitempty"`
+	Error     string          `json:"error,omitempty"`
+}
+
+func (h *SyncHandler) syncProjectBranches(ctx context.Context, projectID int64, prov models.CIProvider) map[string]*BranchStatus {
+	result := make(map[string]*BranchStatus)
+	branches := []string{"main", "uat", "production"}
+
+	for _, branch := range branches {
+		bs := &BranchStatus{Branch: branch, Env: branchEnvMap[branch]}
+
+		// Get latest commit SHA for this branch
+		sha, commitMsg, commitAuthor, err := h.fetchBranchHead(ctx, prov.RepoOwner, prov.RepoName, branch)
+		if err != nil {
+			bs.Error = fmt.Sprintf("branch not found: %s", branch)
+			result[branch] = bs
+			continue
+		}
+		bs.CommitSHA = sha[:minLen(len(sha), 7)]
+
+		// Fetch check-runs (Travis CI, GitHub Actions)
+		checkRuns, _ := h.fetchCheckRuns(ctx, prov.RepoOwner, prov.RepoName, sha)
+
+		// Fetch commit statuses (CircleCI)
+		statuses, _ := h.fetchStatuses(ctx, prov.RepoOwner, prov.RepoName, sha)
+
+		// Pick the relevant CI data based on provider type
+		var build *models.Build
+		var jobs []models.BuildJob
+
+		switch prov.ProviderType {
+		case models.ProviderGitHub:
+			build, jobs = h.mapCheckRunsToBuild(checkRuns, projectID, prov.ID, sha, branch, commitMsg, commitAuthor)
+		case models.ProviderTravis:
+			build, jobs = h.mapCheckRunsToBuild(checkRuns, projectID, prov.ID, sha, branch, commitMsg, commitAuthor)
+		case models.ProviderCircleCI:
+			build, jobs = h.mapStatusesToBuild(statuses, checkRuns, projectID, prov.ID, sha, branch, commitMsg, commitAuthor)
+		}
+
+		if build != nil {
+			// Upsert the build
+			isNew, err := h.store.UpsertBuild(ctx, build)
+			if err != nil {
+				slog.Error("failed to upsert build", "error", err, "project", projectID, "branch", branch)
+			}
+			_ = isNew
+
+			// Upsert jobs
+			for i := range jobs {
+				jobs[i].BuildID = build.ID
+				h.store.UpsertBuildJob(ctx, &jobs[i])
+			}
+
+			// Re-fetch jobs from DB to get IDs
+			dbJobs, _ := h.store.ListBuildJobs(ctx, build.ID)
+			bs.Build = build
+			bs.Jobs = dbJobs
+		}
+
+		result[branch] = bs
+	}
+
+	return result
+}
+
+// GitHub API helpers
+
+func (h *SyncHandler) ghGet(ctx context.Context, url string) ([]byte, error) {
+	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	if h.cfg.GitHubAPIToken != "" {
+		req.Header.Set("Authorization", "Bearer "+h.cfg.GitHubAPIToken)
+	}
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("github api: %d", resp.StatusCode)
+	}
+	return io.ReadAll(resp.Body)
+}
+
+func (h *SyncHandler) fetchBranchHead(ctx context.Context, owner, repo, branch string) (sha, message, author string, err error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/commits/%s", owner, repo, branch)
+	data, err := h.ghGet(ctx, url)
+	if err != nil {
+		return "", "", "", err
+	}
+	var resp struct {
+		SHA    string `json:"sha"`
+		Commit struct {
+			Message string `json:"message"`
+			Author  struct {
+				Name string `json:"name"`
+			} `json:"author"`
+		} `json:"commit"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return "", "", "", err
+	}
+	msg := resp.Commit.Message
+	if idx := strings.Index(msg, "\n"); idx > 0 {
+		msg = msg[:idx]
+	}
+	return resp.SHA, msg, resp.Commit.Author.Name, nil
+}
+
+type ghCheckRun struct {
+	ID          int64   `json:"id"`
+	Name        string  `json:"name"`
+	Status      string  `json:"status"`
+	Conclusion  *string `json:"conclusion"`
+	StartedAt   *string `json:"started_at"`
+	CompletedAt *string `json:"completed_at"`
+	HTMLURL     string  `json:"html_url"`
+	App         struct {
+		Name string `json:"name"`
+	} `json:"app"`
+}
+
+func (h *SyncHandler) fetchCheckRuns(ctx context.Context, owner, repo, sha string) ([]ghCheckRun, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/commits/%s/check-runs", owner, repo, sha)
+	data, err := h.ghGet(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		CheckRuns []ghCheckRun `json:"check_runs"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	return resp.CheckRuns, nil
+}
+
+type ghStatus struct {
+	State     string `json:"state"`
+	Context   string `json:"context"`
+	TargetURL string `json:"target_url"`
+	UpdatedAt string `json:"updated_at"`
+	CreatedAt string `json:"created_at"`
+}
+
+func (h *SyncHandler) fetchStatuses(ctx context.Context, owner, repo, sha string) ([]ghStatus, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/commits/%s/statuses", owner, repo, sha)
+	data, err := h.ghGet(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	var statuses []ghStatus
+	if err := json.Unmarshal(data, &statuses); err != nil {
+		return nil, err
+	}
+	return statuses, nil
+}
+
+// Mapping helpers
+
+func (h *SyncHandler) mapCheckRunsToBuild(runs []ghCheckRun, projectID, providerID int64, sha, branch, commitMsg, commitAuthor string) (*models.Build, []models.BuildJob) {
+	if len(runs) == 0 {
+		return nil, nil
+	}
+
+	// Overall build status: use the last (most recent) check run for the aggregate
+	// but also look at all runs for the worst status
+	overallStatus := models.BuildStatusSuccess
+	var earliestStart, latestEnd *time.Time
+	var providerURL string
+
+	jobs := make([]models.BuildJob, 0, len(runs))
+
+	for _, cr := range runs {
+		jobStatus := mapCheckRunStatus(cr.Status, cr.Conclusion)
+
+		var startedAt, completedAt *time.Time
+		if cr.StartedAt != nil {
+			t, _ := time.Parse(time.RFC3339, *cr.StartedAt)
+			startedAt = &t
+		}
+		if cr.CompletedAt != nil {
+			t, _ := time.Parse(time.RFC3339, *cr.CompletedAt)
+			completedAt = &t
+		}
+
+		var durationMS *int64
+		if startedAt != nil && completedAt != nil {
+			d := completedAt.Sub(*startedAt).Milliseconds()
+			durationMS = &d
+		}
+
+		// Track earliest start and latest end
+		if startedAt != nil && (earliestStart == nil || startedAt.Before(*earliestStart)) {
+			earliestStart = startedAt
+		}
+		if completedAt != nil && (latestEnd == nil || completedAt.After(*latestEnd)) {
+			latestEnd = completedAt
+		}
+
+		// Worst status wins
+		if statusPriority(jobStatus) > statusPriority(overallStatus) {
+			overallStatus = jobStatus
+		}
+
+		if providerURL == "" && cr.HTMLURL != "" {
+			providerURL = cr.HTMLURL
+		}
+
+		jobs = append(jobs, models.BuildJob{
+			ExternalID: fmt.Sprintf("%d", cr.ID),
+			Name:       cr.Name,
+			Status:     jobStatus,
+			DurationMS: durationMS,
+			StartedAt:  startedAt,
+			FinishedAt: completedAt,
+		})
+	}
+
+	var totalDuration *int64
+	if earliestStart != nil && latestEnd != nil {
+		d := latestEnd.Sub(*earliestStart).Milliseconds()
+		totalDuration = &d
+	}
+
+	build := &models.Build{
+		ProjectID:     projectID,
+		ProviderID:    providerID,
+		ExternalID:    sha[:minLen(len(sha), 12)],
+		Status:        overallStatus,
+		Branch:        branch,
+		CommitSHA:     sha,
+		CommitMessage: commitMsg,
+		CommitAuthor:  commitAuthor,
+		DurationMS:    totalDuration,
+		StartedAt:     earliestStart,
+		FinishedAt:    latestEnd,
+		ProviderURL:   providerURL,
+	}
+
+	return build, jobs
+}
+
+func (h *SyncHandler) mapStatusesToBuild(statuses []ghStatus, checkRuns []ghCheckRun, projectID, providerID int64, sha, branch, commitMsg, commitAuthor string) (*models.Build, []models.BuildJob) {
+	// If there are check-runs, prefer those (CircleCI sometimes also uses check-runs)
+	if len(checkRuns) > 0 {
+		return h.mapCheckRunsToBuild(checkRuns, projectID, providerID, sha, branch, commitMsg, commitAuthor)
+	}
+
+	if len(statuses) == 0 {
+		return nil, nil
+	}
+
+	// Group statuses by context, take the most recent for each
+	latest := make(map[string]ghStatus)
+	for _, s := range statuses {
+		if existing, ok := latest[s.Context]; !ok || s.UpdatedAt > existing.UpdatedAt {
+			latest[s.Context] = s
+		}
+	}
+
+	overallStatus := models.BuildStatusSuccess
+	var earliestStart, latestEnd *time.Time
+	var providerURL string
+
+	jobs := make([]models.BuildJob, 0, len(latest))
+
+	for ctx, s := range latest {
+		jobStatus := mapGHStateToStatus(s.State)
+
+		t, _ := time.Parse(time.RFC3339, s.CreatedAt)
+		startedAt := &t
+		t2, _ := time.Parse(time.RFC3339, s.UpdatedAt)
+		endedAt := &t2
+
+		var durationMS *int64
+		if !t.IsZero() && !t2.IsZero() {
+			d := t2.Sub(t).Milliseconds()
+			durationMS = &d
+		}
+
+		if startedAt != nil && (earliestStart == nil || startedAt.Before(*earliestStart)) {
+			earliestStart = startedAt
+		}
+		if endedAt != nil && (latestEnd == nil || endedAt.After(*latestEnd)) {
+			latestEnd = endedAt
+		}
+
+		if statusPriority(jobStatus) > statusPriority(overallStatus) {
+			overallStatus = jobStatus
+		}
+		if providerURL == "" {
+			providerURL = s.TargetURL
+		}
+
+		jobs = append(jobs, models.BuildJob{
+			ExternalID: ctx,
+			Name:       ctx,
+			Status:     jobStatus,
+			DurationMS: durationMS,
+			StartedAt:  startedAt,
+			FinishedAt: endedAt,
+		})
+	}
+
+	var totalDuration *int64
+	if earliestStart != nil && latestEnd != nil {
+		d := latestEnd.Sub(*earliestStart).Milliseconds()
+		totalDuration = &d
+	}
+
+	build := &models.Build{
+		ProjectID:     projectID,
+		ProviderID:    providerID,
+		ExternalID:    sha[:minLen(len(sha), 12)],
+		Status:        overallStatus,
+		Branch:        branch,
+		CommitSHA:     sha,
+		CommitMessage: commitMsg,
+		CommitAuthor:  commitAuthor,
+		DurationMS:    totalDuration,
+		StartedAt:     earliestStart,
+		FinishedAt:    latestEnd,
+		ProviderURL:   providerURL,
+	}
+
+	return build, jobs
+}
+
+func mapCheckRunStatus(status string, conclusion *string) models.BuildStatus {
+	switch status {
+	case "queued":
+		return models.BuildStatusQueued
+	case "in_progress":
+		return models.BuildStatusRunning
+	case "completed":
+		if conclusion == nil {
+			return models.BuildStatusError
+		}
+		switch *conclusion {
+		case "success":
+			return models.BuildStatusSuccess
+		case "failure":
+			return models.BuildStatusFailure
+		case "cancelled":
+			return models.BuildStatusCancelled
+		case "timed_out":
+			return models.BuildStatusError
+		case "skipped":
+			return models.BuildStatusSkipped
+		default:
+			return models.BuildStatusError
+		}
+	}
+	return models.BuildStatusQueued
+}
+
+func mapGHStateToStatus(state string) models.BuildStatus {
+	switch state {
+	case "success":
+		return models.BuildStatusSuccess
+	case "failure", "error":
+		return models.BuildStatusFailure
+	case "pending":
+		return models.BuildStatusRunning
+	default:
+		return models.BuildStatusQueued
+	}
+}
+
+func statusPriority(s models.BuildStatus) int {
+	switch s {
+	case models.BuildStatusSuccess, models.BuildStatusSkipped:
+		return 0
+	case models.BuildStatusQueued:
+		return 1
+	case models.BuildStatusRunning:
+		return 2
+	case models.BuildStatusCancelled:
+		return 3
+	case models.BuildStatusError:
+		return 4
+	case models.BuildStatusFailure:
+		return 5
+	}
+	return 0
+}
+
+func minLen(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
