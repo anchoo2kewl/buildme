@@ -259,9 +259,17 @@ func (h *SyncHandler) syncProjectBranches(ctx context.Context, project models.Pr
 			// Override overall status with workflow-run conclusion (handles continue-on-error jobs)
 			wfRuns, _ := h.fetchWorkflowRuns(ctx, prov.RepoOwner, prov.RepoName, sha)
 			if build != nil && len(wfRuns) > 0 {
-				build.Status = mapCheckRunStatus(wfRuns[0].Status, wfRuns[0].Conclusion)
-				if wfRuns[0].HTMLURL != "" {
-					build.ProviderURL = wfRuns[0].HTMLURL
+				// Prefer deploy workflow if multiple workflows exist
+				chosen := wfRuns[0]
+				for _, wr := range wfRuns {
+					if strings.Contains(strings.ToLower(wr.Name), "deploy") {
+						chosen = wr
+						break
+					}
+				}
+				build.Status = mapCheckRunStatus(chosen.Status, chosen.Conclusion)
+				if chosen.HTMLURL != "" {
+					build.ProviderURL = chosen.HTMLURL
 				}
 			}
 		case models.ProviderTravis:
@@ -389,6 +397,7 @@ type ghStatus struct {
 
 type syncWorkflowRun struct {
 	ID         int64   `json:"id"`
+	Name       string  `json:"name"`
 	Status     string  `json:"status"`
 	Conclusion *string `json:"conclusion"`
 	HTMLURL    string  `json:"html_url"`
