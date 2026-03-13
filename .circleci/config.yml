@@ -34,7 +34,7 @@ jobs:
       - run:
           name: Set build metadata
           command: |
-            echo "export VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "0.0.0-${CIRCLE_SHA1:0:7}")" >> "$BASH_ENV"
+            echo "export VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo '0.0.0-${CIRCLE_SHA1:0:7}')" >> "$BASH_ENV"
             echo "export GIT_COMMIT=${CIRCLE_SHA1:0:7}" >> "$BASH_ENV"
             echo "export BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$BASH_ENV"
             echo "export TAG=git-${CIRCLE_SHA1:0:7}" >> "$BASH_ENV"
@@ -48,7 +48,7 @@ jobs:
             echo "$HARBOR_PASSWORD" | docker login harbor.biswas.me -u "$HARBOR_USERNAME" --password-stdin
 
       - run:
-          name: Build Docker image
+          name: Build and push Docker image
           command: |
             docker build \
               --build-arg "VERSION=$VERSION" \
@@ -57,30 +57,8 @@ jobs:
               -t "$IMAGE_NAME:$TAG" \
               -t "$IMAGE_NAME:latest" \
               .
-
-      - run:
-          name: Push to Harbor
-          command: |
             docker push "$IMAGE_NAME:$TAG"
             docker push "$IMAGE_NAME:latest"
-            # Extract digest
-            DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_NAME:$TAG" | cut -d@ -f2)
-            echo "export IMAGE_DIGEST=$DIGEST" >> "$BASH_ENV"
-            echo "Pushed $IMAGE_NAME:$TAG ($DIGEST)"
-
-      - run:
-          name: Tag as production-latest
-          command: |
-            HARBOR_USERNAME=$(echo "$HARBOR_AUTH" | base64 -d | cut -d: -f1)
-            HARBOR_PASSWORD=$(echo "$HARBOR_AUTH" | base64 -d | cut -d: -f2)
-            # Delete existing production-latest tag
-            curl -sf -u "$HARBOR_USERNAME:$HARBOR_PASSWORD" \
-              -X DELETE "https://harbor.biswas.me/api/v2.0/projects/biswas/repositories/buildme/artifacts/production-latest/tags/production-latest" 2>/dev/null || true
-            # Create new production-latest tag
-            curl -sf -u "$HARBOR_USERNAME:$HARBOR_PASSWORD" \
-              -X POST "https://harbor.biswas.me/api/v2.0/projects/biswas/repositories/buildme/artifacts/$IMAGE_DIGEST/tags" \
-              -H "Content-Type: application/json" \
-              -d '{"name": "production-latest"}'
 
       # Deploy to production
       - add_ssh_keys:
@@ -92,20 +70,12 @@ jobs:
             HARBOR_USERNAME=$(echo "$HARBOR_AUTH" | base64 -d | cut -d: -f1)
             HARBOR_PASSWORD=$(echo "$HARBOR_AUTH" | base64 -d | cut -d: -f2)
 
-            ssh -o StrictHostKeyChecking=no ubuntu@31.97.102.48 "
-              # Login to Harbor
-              echo '${HARBOR_PASSWORD}' | docker login harbor.biswas.me -u '${HARBOR_USERNAME}' --password-stdin
-
-              # Pull new image
-              cd /opt/buildme
-              export IMAGE_DIGEST=${IMAGE_DIGEST}
-              docker compose -f docker-compose.production.yml pull
-
-              # Restart
-              docker compose -f docker-compose.production.yml up -d --no-build
-
-              # Health check
-              sleep 3
+            ssh -o StrictHostKeyChecking=no ubuntu@31.97.102.48 "\
+              echo '${HARBOR_PASSWORD}' | docker login harbor.biswas.me -u '${HARBOR_USERNAME}' --password-stdin && \
+              cd /opt/buildme && \
+              docker compose -f docker-compose.production.yml pull && \
+              docker compose -f docker-compose.production.yml up -d --no-build && \
+              sleep 3 && \
               curl -sf http://127.0.0.1:13425/health && echo ' Deploy OK' || echo ' Deploy FAILED'
             "
 
