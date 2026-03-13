@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anchoo2kewl/buildme/internal/config"
@@ -668,7 +669,7 @@ func minLen(a, b int) int {
 	return b
 }
 
-// DriftCheck fetches deployed versions from each project's version endpoint.
+// DriftCheck fetches deployed versions and health from each project's environments.
 func (h *SyncHandler) DriftCheck(w http.ResponseWriter, r *http.Request) {
 	user := UserFromCtx(r.Context())
 	projects, err := h.store.ListProjectsForUser(r.Context(), user.ID)
@@ -677,14 +678,13 @@ func (h *SyncHandler) DriftCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type driftResult struct {
-		ProjectID   int64  `json:"project_id"`
-		Env         string `json:"env"`
-		DeployedSHA string `json:"deployed_sha"`
-		Health      int    `json:"health"`
+	// Collect all environment checks to run concurrently
+	type envCheck struct {
+		project models.Project
+		env     string
+		baseURL string
 	}
-
-	var results []driftResult
+	var checks []envCheck
 	for _, p := range projects {
 		envURLs := map[string]string{
 			"staging": p.StagingURL, "uat": p.UATURL, "production": p.ProductionURL,
@@ -693,55 +693,153 @@ func (h *SyncHandler) DriftCheck(w http.ResponseWriter, r *http.Request) {
 			if baseURL == "" {
 				continue
 			}
-			dr := driftResult{ProjectID: p.ID, Env: env}
-
-			versionPath := p.VersionPath
-			if versionPath == "" {
-				versionPath = "/api/version"
-			}
-			versionField := p.VersionField
-			if versionField == "" {
-				versionField = "git_commit"
-			}
-			dr.DeployedSHA = h.fetchDeployedVersion(r.Context(), baseURL+versionPath, versionField)
-
-			healthPath := p.HealthPath
-			if healthPath == "" {
-				healthPath = "/health"
-			}
-			dr.Health = h.checkHealth(r.Context(), baseURL+healthPath)
-
-			results = append(results, dr)
+			checks = append(checks, envCheck{project: p, env: env, baseURL: baseURL})
 		}
 	}
 
-	jsonResp(w, http.StatusOK, results)
+	// Run all environment checks concurrently (bounded to 10 goroutines)
+	results := make([]models.EnvironmentStatus, len(checks))
+	sem := make(chan struct{}, 10)
+	var wg sync.WaitGroup
+
+	// Fetch branch HEADs per project (for drift detection)
+	type branchKey struct {
+		owner, repo, branch string
+	}
+	branchHeads := make(map[branchKey]string)
+	var branchMu sync.Mutex
+
+	for i, chk := range checks {
+		wg.Add(1)
+		go func(idx int, c envCheck) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			es := models.EnvironmentStatus{
+				ProjectID:   c.project.ID,
+				ProjectName: c.project.Name,
+				Env:         c.env,
+				BaseURL:     c.baseURL,
+				CheckedAt:   time.Now().UTC().Format(time.RFC3339),
+			}
+
+			versionPath := c.project.VersionPath
+			if versionPath == "" {
+				versionPath = "/api/version"
+			}
+			versionField := c.project.VersionField
+			if versionField == "" {
+				versionField = "git_commit"
+			}
+
+			versionURL := c.baseURL + versionPath
+			versionData, sha := h.fetchVersionFull(r.Context(), versionURL, versionField, c.baseURL)
+			es.VersionInfo = versionData
+			es.DeployedSHA = sha
+
+			healthPath := c.project.HealthPath
+			if healthPath == "" {
+				healthPath = "/health"
+			}
+			healthURL := c.baseURL + healthPath
+			status, responseMS := h.checkHealthTimed(r.Context(), healthURL, c.baseURL)
+			es.HealthStatus = status
+			es.ResponseTimeMS = responseMS
+
+			// Get branch HEAD for drift detection
+			providers, _ := h.store.ListCIProviders(r.Context(), c.project.ID)
+			if len(providers) > 0 && sha != "" {
+				prov := providers[0]
+				branch := "main"
+				for b, e := range branchEnvMap {
+					if e == c.env {
+						branch = b
+						break
+					}
+				}
+				key := branchKey{prov.RepoOwner, prov.RepoName, branch}
+				branchMu.Lock()
+				head, exists := branchHeads[key]
+				branchMu.Unlock()
+
+				if !exists {
+					headSHA, _, _, err := h.fetchBranchHead(r.Context(), prov.RepoOwner, prov.RepoName, branch)
+					if err == nil {
+						branchMu.Lock()
+						branchHeads[key] = headSHA
+						branchMu.Unlock()
+						head = headSHA
+					}
+				}
+
+				if head != "" {
+					es.BranchHeadSHA = head[:minLen(len(head), 7)]
+					deployedShort := sha
+					if len(deployedShort) > 7 {
+						deployedShort = deployedShort[:7]
+					}
+					headShort := head[:minLen(len(head), 7)]
+					es.IsDrifted = deployedShort != headShort
+				}
+			}
+
+			results[idx] = es
+		}(i, chk)
+	}
+	wg.Wait()
+
+	// Group results by project
+	projectMap := make(map[int64]*models.DriftProject)
+	projectOrder := make([]int64, 0)
+	for _, p := range projects {
+		projectMap[p.ID] = &models.DriftProject{Project: p}
+		projectOrder = append(projectOrder, p.ID)
+	}
+	for _, es := range results {
+		if dp, ok := projectMap[es.ProjectID]; ok {
+			dp.Environments = append(dp.Environments, es)
+		}
+	}
+
+	dashboard := models.DriftDashboard{}
+	for _, pid := range projectOrder {
+		dp := projectMap[pid]
+		if len(dp.Environments) > 0 {
+			dashboard.Projects = append(dashboard.Projects, *dp)
+		}
+	}
+
+	jsonResp(w, http.StatusOK, dashboard)
 }
 
-func (h *SyncHandler) fetchDeployedVersion(ctx context.Context, url, field string) string {
+// fetchVersionFull fetches the full version JSON and extracts the SHA field.
+func (h *SyncHandler) fetchVersionFull(ctx context.Context, url, field, baseURL string) (map[string]interface{}, string) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "BuildMe/1.0")
+	h.addCfHeaders(req, baseURL)
 
 	resp, err := h.client.Do(req)
 	if err != nil {
-		return ""
+		return nil, ""
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return ""
+		return nil, ""
 	}
 
 	var data map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return ""
+		return nil, ""
 	}
 
-	return extractField(data, field)
+	sha := extractField(data, field)
+	return data, sha
 }
 
 func extractField(data map[string]interface{}, path string) string {
@@ -761,17 +859,32 @@ func extractField(data map[string]interface{}, path string) string {
 	return s
 }
 
-func (h *SyncHandler) checkHealth(ctx context.Context, url string) int {
+// checkHealthTimed checks the health endpoint and returns status code + response time in ms.
+func (h *SyncHandler) checkHealthTimed(ctx context.Context, url, baseURL string) (int, int64) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
 	req.Header.Set("User-Agent", "BuildMe/1.0")
+	h.addCfHeaders(req, baseURL)
 
+	start := time.Now()
 	resp, err := h.client.Do(req)
+	elapsed := time.Since(start).Milliseconds()
 	if err != nil {
-		return 0
+		return 0, elapsed
 	}
 	resp.Body.Close()
-	return resp.StatusCode
+	return resp.StatusCode, elapsed
+}
+
+// addCfHeaders adds Cloudflare Access headers for staging/UAT URLs.
+func (h *SyncHandler) addCfHeaders(req *http.Request, baseURL string) {
+	if h.cfg.CfAccessClientID == "" || h.cfg.CfAccessClientSecret == "" {
+		return
+	}
+	if strings.Contains(baseURL, "staging.") || strings.Contains(baseURL, "uat.") {
+		req.Header.Set("CF-Access-Client-Id", h.cfg.CfAccessClientID)
+		req.Header.Set("CF-Access-Client-Secret", h.cfg.CfAccessClientSecret)
+	}
 }

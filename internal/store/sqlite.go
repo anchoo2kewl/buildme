@@ -679,6 +679,69 @@ func (s *SQLiteStore) ListPushSubscriptions(ctx context.Context, userIDs []int64
 	return subs, rows.Err()
 }
 
+// --- API Keys ---
+
+func (s *SQLiteStore) CreateAPIKey(ctx context.Context, key *models.APIKey) error {
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO api_keys (user_id, name, key_hash, key_prefix, expires_at) VALUES (?, ?, ?, ?, ?)`,
+		key.UserID, key.Name, key.KeyHash, key.KeyPrefix, key.ExpiresAt)
+	if err != nil {
+		return err
+	}
+	key.ID, _ = res.LastInsertId()
+	return nil
+}
+
+func (s *SQLiteStore) ListAPIKeysByUser(ctx context.Context, userID int64) ([]models.APIKey, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, user_id, name, key_prefix, last_used_at, created_at, expires_at
+		 FROM api_keys WHERE user_id = ? ORDER BY created_at DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var keys []models.APIKey
+	for rows.Next() {
+		var k models.APIKey
+		if err := rows.Scan(&k.ID, &k.UserID, &k.Name, &k.KeyPrefix, &k.LastUsedAt, &k.CreatedAt, &k.ExpiresAt); err != nil {
+			return nil, err
+		}
+		keys = append(keys, k)
+	}
+	return keys, rows.Err()
+}
+
+func (s *SQLiteStore) GetUserByAPIKey(ctx context.Context, keyHash string) (*models.User, error) {
+	var expiresAt *time.Time
+	var userID int64
+	var keyID int64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, user_id, expires_at FROM api_keys WHERE key_hash = ?`, keyHash).
+		Scan(&keyID, &userID, &expiresAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Reject expired keys
+	if expiresAt != nil && expiresAt.Before(time.Now()) {
+		return nil, nil
+	}
+
+	// Update last_used_at
+	s.db.ExecContext(ctx, `UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ?`, keyID)
+
+	return s.GetUserByID(ctx, userID)
+}
+
+func (s *SQLiteStore) DeleteAPIKey(ctx context.Context, id, userID int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM api_keys WHERE id = ? AND user_id = ?`, id, userID)
+	return err
+}
+
 // App Settings
 
 func (s *SQLiteStore) GetSetting(ctx context.Context, key string) (string, error) {

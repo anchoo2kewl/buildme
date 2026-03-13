@@ -217,6 +217,18 @@ type PushSubscription struct {
 	Auth     string `json:"auth_key"`
 }
 
+// APIKey represents a user's API key for programmatic access.
+type APIKey struct {
+	ID         int64      `json:"id"`
+	UserID     int64      `json:"user_id"`
+	Name       string     `json:"name"`
+	KeyHash    string     `json:"-"`
+	KeyPrefix  string     `json:"key_prefix"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
+}
+
 // BuildEvent is a WebSocket event payload.
 type BuildEvent struct {
 	Type      string `json:"type"`
@@ -236,4 +248,31 @@ type BuildFilter struct {
 	Branch string      `json:"branch,omitempty"`
 	Status BuildStatus `json:"status,omitempty"`
 	Pagination
+}
+
+// EnvironmentStatus holds the status of a single environment for a project.
+type EnvironmentStatus struct {
+	ProjectID      int64                  `json:"project_id"`
+	ProjectName    string                 `json:"project_name"`
+	Env            string                 `json:"env"`
+	BaseURL        string                 `json:"base_url"`
+	DeployedSHA    string                 `json:"deployed_sha"`
+	VersionInfo    map[string]interface{} `json:"version_info"`
+	HealthStatus   int                    `json:"health_status"`
+	ResponseTimeMS int64                  `json:"response_time_ms"`
+	BranchHeadSHA  string                 `json:"branch_head_sha,omitempty"`
+	IsDrifted      bool                   `json:"is_drifted"`
+	CheckedAt      string                 `json:"checked_at"`
+	Error          string                 `json:"error,omitempty"`
+}
+
+// DriftProject groups environment statuses for a single project.
+type DriftProject struct {
+	Project      Project             `json:"project"`
+	Environments []EnvironmentStatus `json:"environments"`
+}
+
+// DriftDashboard is the response type for the drift check endpoint.
+type DriftDashboard struct {
+	Projects []DriftProject `json:"projects"`
 }

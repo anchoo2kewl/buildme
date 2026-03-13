@@ -1,0 +1,1 @@
+import{v as e}from"./q-CcP5yyxH.js";import{x as g}from"./q-CcP5yyxH.js";import{s as r}from"./q-Bl83swG4.js";const c=()=>{const[t,o]=e(),s=t.url.searchParams.get("token");s?(r(s),o("/dashboard")):o("/auth/login")};export{g as _hW,c as s_SzsgvbcPHog};

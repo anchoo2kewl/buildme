@@ -77,6 +77,12 @@ type Store interface {
 	DeletePushSubscription(ctx context.Context, id int64) error
 	ListPushSubscriptions(ctx context.Context, userIDs []int64) ([]models.PushSubscription, error)
 
+	// API Keys
+	CreateAPIKey(ctx context.Context, key *models.APIKey) error
+	ListAPIKeysByUser(ctx context.Context, userID int64) ([]models.APIKey, error)
+	GetUserByAPIKey(ctx context.Context, keyHash string) (*models.User, error)
+	DeleteAPIKey(ctx context.Context, id, userID int64) error
+
 	// App Settings
 	GetSetting(ctx context.Context, key string) (string, error)
 	SetSetting(ctx context.Context, key string, value string) error

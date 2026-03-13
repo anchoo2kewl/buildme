@@ -25,8 +25,10 @@ type Config struct {
 	SMTPFrom        string
 	VAPIDPublicKey  string
 	VAPIDPrivateKey string
-	GitHubAPIToken  string
-	AdminEmail      string
+	GitHubAPIToken     string
+	CfAccessClientID   string
+	CfAccessClientSecret string
+	AdminEmail         string
 	AdminPassword   string
 	AdminName       string
 }
@@ -50,8 +52,10 @@ func Load() (*Config, error) {
 		SMTPFrom:        envStr("BUILDME_SMTP_FROM", ""),
 		VAPIDPublicKey:  envStr("BUILDME_VAPID_PUBLIC_KEY", ""),
 		VAPIDPrivateKey: envStr("BUILDME_VAPID_PRIVATE_KEY", ""),
-		GitHubAPIToken:  envStr("BUILDME_GITHUB_API_TOKEN", ""),
-		AdminEmail:      envStr("BUILDME_ADMIN_EMAIL", "anshuman@biswas.me"),
+		GitHubAPIToken:     envStr("BUILDME_GITHUB_API_TOKEN", ""),
+		CfAccessClientID:   envStr("BUILDME_CF_ACCESS_CLIENT_ID", ""),
+		CfAccessClientSecret: envStr("BUILDME_CF_ACCESS_CLIENT_SECRET", ""),
+		AdminEmail:         envStr("BUILDME_ADMIN_EMAIL", "anshuman@biswas.me"),
 		AdminPassword:   envStr("BUILDME_ADMIN_PASSWORD", ""),
 		AdminName:       envStr("BUILDME_ADMIN_NAME", "anshuman"),
 	}

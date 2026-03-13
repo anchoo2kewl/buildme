@@ -28,6 +28,12 @@ export interface Project {
   name: string;
   slug: string;
   description?: string;
+  staging_url?: string;
+  uat_url?: string;
+  production_url?: string;
+  version_path?: string;
+  version_field?: string;
+  health_path?: string;
   created_at: string;
   updated_at: string;
 }
@@ -100,4 +106,28 @@ export interface BuildEvent {
   project_id: number;
   build?: Build;
   job?: BuildJob;
+}
+
+export interface EnvironmentStatus {
+  project_id: number;
+  project_name: string;
+  env: string;
+  base_url: string;
+  deployed_sha: string;
+  version_info: Record<string, unknown> | null;
+  health_status: number;
+  response_time_ms: number;
+  branch_head_sha?: string;
+  is_drifted: boolean;
+  checked_at: string;
+  error?: string;
+}
+
+export interface DriftProject {
+  project: Project;
+  environments: EnvironmentStatus[];
+}
+
+export interface DriftDashboard {
+  projects: DriftProject[];
 }

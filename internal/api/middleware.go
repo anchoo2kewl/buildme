@@ -49,13 +49,31 @@ func RoleFromCtx(ctx context.Context) models.ProjectRole {
 	return ""
 }
 
-// JWTAuth middleware validates the JWT token and sets user context.
+// JWTAuth middleware validates JWT tokens and API keys, then sets user context.
 func JWTAuth(secret string, s store.Store) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			authHeader := r.Header.Get("Authorization")
+
+			// API Key authentication: "Authorization: ApiKey <key>"
+			if strings.HasPrefix(authHeader, "ApiKey ") {
+				rawKey := authHeader[7:]
+				keyHash := auth.HashAPIKey(rawKey)
+				user, err := s.GetUserByAPIKey(r.Context(), keyHash)
+				if err != nil || user == nil {
+					http.Error(w, `{"error":"invalid api key"}`, http.StatusUnauthorized)
+					return
+				}
+				ctx := context.WithValue(r.Context(), ctxUserID, user.ID)
+				ctx = context.WithValue(ctx, ctxUser, user)
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+
+			// JWT authentication: "Authorization: Bearer <jwt>" or ?token= query param
 			tokenStr := ""
-			if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
-				tokenStr = h[7:]
+			if strings.HasPrefix(authHeader, "Bearer ") {
+				tokenStr = authHeader[7:]
 			}
 			if tokenStr == "" {
 				tokenStr = r.URL.Query().Get("token")

@@ -43,6 +43,7 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 	channelH := &ChannelHandler{store: s}
 	wsH := &WSHandler{hub: hub}
 	syncH := &SyncHandler{store: s, cfg: cfg, client: &http.Client{Timeout: 30 * time.Second}, dispatcher: dispatcher}
+	apikeyH := &APIKeyHandler{store: s}
 	adminH := &AdminHandler{store: s}
 
 	// Health + version
@@ -74,6 +75,11 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 		// Invites
 		r.Post("/api/invites", authH.CreateInvite)
 		r.Get("/api/invites", authH.ListInvites)
+
+		// API Keys
+		r.Get("/api/api-keys", apikeyH.List)
+		r.Post("/api/api-keys", apikeyH.Create)
+		r.Delete("/api/api-keys/{keyId}", apikeyH.Delete)
 
 		// Dashboard + Sync + Drift
 		r.Get("/api/dashboard", syncH.Dashboard)
