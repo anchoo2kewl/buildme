@@ -1,0 +1,99 @@
+version: 2.1
+
+jobs:
+  test:
+    docker:
+      - image: cimg/go:1.24
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - go-mod-{{ checksum "go.sum" }}
+      - run:
+          name: Download dependencies
+          command: go mod download
+      - save_cache:
+          key: go-mod-{{ checksum "go.sum" }}
+          paths:
+            - ~/go/pkg/mod
+      - run:
+          name: Run tests
+          command: go test -race -count=1 ./internal/...
+      - run:
+          name: Vet
+          command: go vet ./...
+
+  build-and-deploy:
+    docker:
+      - image: cimg/go:1.24-node
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - go-mod-{{ checksum "go.sum" }}
+      - run:
+          name: Download Go dependencies
+          command: go mod download
+      - save_cache:
+          key: go-mod-{{ checksum "go.sum" }}
+          paths:
+            - ~/go/pkg/mod
+
+      # Build frontend
+      - restore_cache:
+          keys:
+            - npm-{{ checksum "frontend/package-lock.json" }}
+      - run:
+          name: Install frontend dependencies
+          command: cd frontend && npm ci
+      - save_cache:
+          key: npm-{{ checksum "frontend/package-lock.json" }}
+          paths:
+            - frontend/node_modules
+      - run:
+          name: Build frontend
+          command: cd frontend && npm run build
+
+      # Build Go binary
+      - run:
+          name: Build binary
+          command: |
+            VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "0.0.0-${CIRCLE_SHA1:0:7}")
+            COMMIT=${CIRCLE_SHA1:0:7}
+            BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build \
+              -ldflags "-s -w \
+                -X github.com/anchoo2kewl/buildme/internal/version.Version=${VERSION} \
+                -X github.com/anchoo2kewl/buildme/internal/version.GitCommit=${COMMIT} \
+                -X github.com/anchoo2kewl/buildme/internal/version.BuildTime=${BUILD_TIME}" \
+              -o buildme-linux-amd64 ./cmd/server
+
+      # Deploy to production
+      - add_ssh_keys:
+          fingerprints:
+            - "${SSH_FINGERPRINT}"
+      - run:
+          name: Deploy to production
+          command: |
+            # Upload binary
+            scp -o StrictHostKeyChecking=no buildme-linux-amd64 ubuntu@31.97.102.48:/tmp/buildme-new
+
+            # Deploy on server
+            ssh -o StrictHostKeyChecking=no ubuntu@31.97.102.48 "
+              sudo mv /tmp/buildme-new /usr/local/bin/buildme
+              sudo chmod +x /usr/local/bin/buildme
+              sudo systemctl restart buildme
+              sleep 2
+              curl -sf http://127.0.0.1:13425/health && echo ' Deploy OK' || echo ' Deploy FAILED'
+            "
+
+workflows:
+  build-deploy:
+    jobs:
+      - test
+      - build-and-deploy:
+          requires:
+            - test
+          filters:
+            branches:
+              only: main

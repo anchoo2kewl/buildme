@@ -1,0 +1,13 @@
+services:
+  buildme:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - buildme-data:/data
+    env_file:
+      - .env
+    restart: unless-stopped
+
+volumes:
+  buildme-data:

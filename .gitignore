@@ -1,0 +1,9 @@
+buildme
+*.db
+*.db-wal
+*.db-shm
+.env
+frontend/dist/
+frontend/node_modules/
+frontend/server/
+frontend/.qwik/
