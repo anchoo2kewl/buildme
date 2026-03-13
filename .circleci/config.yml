@@ -61,16 +61,20 @@ jobs:
             docker push "$IMAGE_NAME:latest"
 
       # Deploy to production
-      - add_ssh_keys:
-          fingerprints:
-            - "${SSH_FINGERPRINT}"
+      - run:
+          name: Setup SSH key
+          command: |
+            mkdir -p ~/.ssh
+            echo "$DEPLOY_SSH_KEY" | base64 -d > ~/.ssh/deploy_key
+            chmod 600 ~/.ssh/deploy_key
+            ssh-keyscan -H 31.97.102.48 >> ~/.ssh/known_hosts 2>/dev/null
       - run:
           name: Deploy to production
           command: |
             HARBOR_USERNAME=$(echo "$HARBOR_AUTH" | base64 -d | cut -d: -f1)
             HARBOR_PASSWORD=$(echo "$HARBOR_AUTH" | base64 -d | cut -d: -f2)
 
-            ssh -o StrictHostKeyChecking=no ubuntu@31.97.102.48 "\
+            ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ubuntu@31.97.102.48 "\
               echo '${HARBOR_PASSWORD}' | docker login harbor.biswas.me -u '${HARBOR_USERNAME}' --password-stdin && \
               cd /opt/buildme && \
               docker compose -f docker-compose.production.yml pull && \
