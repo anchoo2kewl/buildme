@@ -98,6 +98,7 @@ select.form-input { appearance: none; background-image: url("data:image/svg+xml,
 .badge-queued { background: rgba(251,191,36,0.15); color: var(--warning); }
 .badge-cancelled { background: rgba(136,136,168,0.15); color: var(--muted); }
 .badge-error { background: rgba(248,113,113,0.15); color: var(--failure); }
+.badge-warning { background: rgba(251,191,36,0.15); color: var(--warning); }
 
 /* Hero */
 .hero { text-align: center; padding: 80px 24px 60px; }
@@ -148,6 +149,8 @@ td { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 0.87
 .dash-table .project-name { font-weight: 600; color: var(--text); }
 .commit-sha { font-family: var(--mono); font-size: 0.75rem; background: var(--bg); padding: 2px 6px; border-radius: 4px; }
 .dash-table .time-cell { font-size: 0.8rem; color: var(--muted); }
+.drift-loading { animation: driftPulse 1.5s ease-in-out infinite; }
+@keyframes driftPulse { 0%,100% { opacity: 0.3; } 50% { opacity: 1; } }
 
 /* Sync button */
 .btn-sync { background: var(--elevated); color: var(--text); border: 1px solid var(--border); padding: 6px 14px; font-size: 0.8rem; }

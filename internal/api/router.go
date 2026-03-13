@@ -75,9 +75,10 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 		r.Post("/api/invites", authH.CreateInvite)
 		r.Get("/api/invites", authH.ListInvites)
 
-		// Dashboard + Sync
+		// Dashboard + Sync + Drift
 		r.Get("/api/dashboard", syncH.Dashboard)
 		r.Post("/api/sync", syncH.SyncAll)
+		r.Get("/api/drift", syncH.DriftCheck)
 
 		// Admin settings (super admin only)
 		r.Get("/api/admin/email-settings", adminH.GetEmailSettings)

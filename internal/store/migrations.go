@@ -20,6 +20,12 @@ CREATE TABLE IF NOT EXISTS projects (
     name TEXT NOT NULL,
     slug TEXT NOT NULL UNIQUE,
     description TEXT NOT NULL DEFAULT '',
+    staging_url TEXT NOT NULL DEFAULT '',
+    uat_url TEXT NOT NULL DEFAULT '',
+    production_url TEXT NOT NULL DEFAULT '',
+    version_path TEXT NOT NULL DEFAULT '/api/version',
+    version_field TEXT NOT NULL DEFAULT 'git_commit',
+    health_path TEXT NOT NULL DEFAULT '/health',
     created_at DATETIME NOT NULL DEFAULT (datetime('now')),
     updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
 );
@@ -135,3 +141,14 @@ CREATE TABLE IF NOT EXISTS app_settings (
     updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
 );
 `
+
+// migrations contains incremental ALTER TABLE statements.
+// Errors are ignored (column may already exist on existing DBs).
+var migrations = []string{
+	"ALTER TABLE projects ADD COLUMN staging_url TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE projects ADD COLUMN uat_url TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE projects ADD COLUMN production_url TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE projects ADD COLUMN version_path TEXT NOT NULL DEFAULT '/api/version'",
+	"ALTER TABLE projects ADD COLUMN version_field TEXT NOT NULL DEFAULT 'git_commit'",
+	"ALTER TABLE projects ADD COLUMN health_path TEXT NOT NULL DEFAULT '/health'",
+}

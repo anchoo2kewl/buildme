@@ -104,12 +104,18 @@ type Invite struct {
 
 // Project represents a monitored project group.
 type Project struct {
-	ID          int64     `json:"id"`
-	Name        string    `json:"name"`
-	Slug        string    `json:"slug"`
-	Description string    `json:"description,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID            int64     `json:"id"`
+	Name          string    `json:"name"`
+	Slug          string    `json:"slug"`
+	Description   string    `json:"description,omitempty"`
+	StagingURL    string    `json:"staging_url,omitempty"`
+	UATURL        string    `json:"uat_url,omitempty"`
+	ProductionURL string    `json:"production_url,omitempty"`
+	VersionPath   string    `json:"version_path,omitempty"`
+	VersionField  string    `json:"version_field,omitempty"`
+	HealthPath    string    `json:"health_path,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // ProjectMember represents a user's membership in a project.

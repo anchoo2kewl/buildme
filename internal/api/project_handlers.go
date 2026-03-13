@@ -111,8 +111,14 @@ func (h *ProjectHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name        *string `json:"name"`
-		Description *string `json:"description"`
+		Name          *string `json:"name"`
+		Description   *string `json:"description"`
+		StagingURL    *string `json:"staging_url"`
+		UATURL        *string `json:"uat_url"`
+		ProductionURL *string `json:"production_url"`
+		VersionPath   *string `json:"version_path"`
+		VersionField  *string `json:"version_field"`
+		HealthPath    *string `json:"health_path"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "invalid request body", http.StatusBadRequest)
@@ -125,6 +131,24 @@ func (h *ProjectHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Description != nil {
 		project.Description = *req.Description
+	}
+	if req.StagingURL != nil {
+		project.StagingURL = *req.StagingURL
+	}
+	if req.UATURL != nil {
+		project.UATURL = *req.UATURL
+	}
+	if req.ProductionURL != nil {
+		project.ProductionURL = *req.ProductionURL
+	}
+	if req.VersionPath != nil {
+		project.VersionPath = *req.VersionPath
+	}
+	if req.VersionField != nil {
+		project.VersionField = *req.VersionField
+	}
+	if req.HealthPath != nil {
+		project.HealthPath = *req.HealthPath
 	}
 
 	if err := h.store.UpdateProject(r.Context(), project); err != nil {

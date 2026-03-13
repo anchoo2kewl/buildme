@@ -314,6 +314,12 @@
     try {
       window.__dashData = await api('/dashboard');
       renderDashboardTable(savedEnv);
+      // Load drift data asynchronously (health + deployed version)
+      api('/drift').then(data => {
+        window.__driftData = data;
+        const env = localStorage.getItem('buildme_env') || 'production';
+        renderDashboardTable(env);
+      }).catch(() => {});
     } catch (err) {
       document.getElementById('dash-content').innerHTML = '<p class="text-muted">Failed to load dashboard.</p>';
       toast(err.message);
@@ -329,21 +335,31 @@
     }
 
     const branch = envBranchMap[env] || 'production';
+    const drift = window.__driftData || [];
 
     let rows = '';
     for (const entry of data) {
       const p = entry.project;
       const build = (entry.builds || []).find(b => b.branch === branch);
+      const driftEntry = drift.find(d => d.project_id === p.id && d.env === env);
+
+      // Health column
+      let healthHTML = '<span class="text-muted drift-loading">...</span>';
+      if (driftEntry) {
+        if (driftEntry.health === 200) healthHTML = '<span class="badge badge-success">200</span>';
+        else if (driftEntry.health > 0) healthHTML = '<span class="badge badge-failure">' + driftEntry.health + '</span>';
+        else healthHTML = '<span class="text-muted">DOWN</span>';
+      }
 
       if (!build) {
         rows += `<tr>
           <td><a href="/dashboard/projects/${p.id}" class="project-name">${esc(p.name)}</a></td>
           <td><span class="badge badge-cancelled">no build</span></td>
+          <td>${healthHTML}</td>
           <td class="text-muted">-</td>
           <td class="text-muted">-</td>
           <td class="text-muted">-</td>
-          <td class="time-cell">-</td>
-          <td class="time-cell">-</td>
+          <td class="text-muted">-</td>
           <td class="time-cell">-</td>
           <td></td>
         </tr>`;
@@ -353,13 +369,29 @@
       const sha = build.commit_sha ? build.commit_sha.substring(0, 7) : '-';
       const isRunning = build.status === 'running' || build.status === 'queued';
       const dur = isRunning ? runningElapsed(build.started_at) : formatDuration(build.duration_ms);
-      const started = build.started_at ? formatTime(build.started_at) : '-';
-      const ended = build.finished_at ? formatTime(build.finished_at) : '-';
       const lastRan = build.started_at ? timeAgo(build.started_at) : '-';
       const commitMsg = build.commit_message || '-';
       const truncMsg = commitMsg.length > 40 ? commitMsg.substring(0, 40) + '...' : commitMsg;
 
       const progressHTML = isRunning ? '<div class="progress-bar"><div class="progress-bar-fill" style="width:60%"></div></div>' : '';
+
+      // Deployed + Drift columns
+      let deployedHTML = '<span class="text-muted drift-loading">...</span>';
+      let driftHTML = '<span class="text-muted drift-loading">...</span>';
+      if (driftEntry) {
+        const dSha = driftEntry.deployed_sha;
+        if (dSha) {
+          deployedHTML = '<span class="commit-sha">' + esc(dSha.substring(0, 7)) + '</span>';
+          if (build.commit_sha && build.commit_sha.substring(0, 7) === dSha.substring(0, 7)) {
+            driftHTML = '<span class="badge badge-success">in sync</span>';
+          } else {
+            driftHTML = '<span class="badge badge-warning">behind</span>';
+          }
+        } else {
+          deployedHTML = '<span class="text-muted">-</span>';
+          driftHTML = '<span class="text-muted">-</span>';
+        }
+      }
 
       rows += `<tr>
         <td>
@@ -367,11 +399,12 @@
           ${progressHTML}
         </td>
         <td><span class="badge badge-${statusClass(build.status)}">${esc(build.status)}</span></td>
+        <td>${healthHTML}</td>
         <td><span class="commit-sha">${esc(sha)}</span></td>
+        <td>${deployedHTML}</td>
+        <td>${driftHTML}</td>
         <td class="text-sm" title="${esc(commitMsg)}">${esc(truncMsg)}</td>
         <td class="text-muted text-sm">${lastRan}</td>
-        <td class="time-cell">${started}</td>
-        <td class="time-cell">${ended}</td>
         <td class="time-cell">${dur}</td>
         <td><button class="btn-retrigger" onclick="window.__retrigger(${p.id},${build.id},this)" title="Re-run build">&#8635;</button></td>
       </tr>`;
@@ -383,12 +416,13 @@
           <thead>
             <tr>
               <th>Project</th>
-              <th>Status</th>
+              <th>Build</th>
+              <th>Health</th>
               <th>Commit</th>
+              <th>Deployed</th>
+              <th>Drift</th>
               <th>Message</th>
               <th>Last Ran</th>
-              <th>Started</th>
-              <th>Ended</th>
               <th>Duration</th>
               <th></th>
             </tr>
@@ -602,6 +636,7 @@
 
         <div class="section-tabs" id="settings-tabs">
           <button class="section-tab active" data-section="providers">Providers</button>
+          <button class="section-tab" data-section="deployments">Deployments</button>
           <button class="section-tab" data-section="members">Members</button>
           <button class="section-tab" data-section="channels">Notifications</button>
           <button class="section-tab" data-section="danger">Danger</button>
@@ -630,6 +665,42 @@
                   <input class="form-input" name="api_token" placeholder="API token" type="password" style="flex:1;min-width:140px">
                   <button type="submit" class="btn btn-primary btn-sm">Add</button>
                 </div>
+              </form>
+            </div>
+          </div>
+
+          <!-- Deployments -->
+          <div id="section-deployments" style="display:none">
+            <div class="card mb-4">
+              <h2 class="text-lg font-bold mb-2">Deployment URLs</h2>
+              <p class="text-sm text-muted mb-4">Configure environment URLs for drift detection and health monitoring.</p>
+              <form id="deployment-urls">
+                <div class="form-group">
+                  <label>Staging URL</label>
+                  <input type="url" class="form-input" name="staging_url" placeholder="https://staging.example.com" value="${esc(project.staging_url || '')}">
+                </div>
+                <div class="form-group">
+                  <label>UAT URL</label>
+                  <input type="url" class="form-input" name="uat_url" placeholder="https://uat.example.com" value="${esc(project.uat_url || '')}">
+                </div>
+                <div class="form-group">
+                  <label>Production URL</label>
+                  <input type="url" class="form-input" name="production_url" placeholder="https://example.com" value="${esc(project.production_url || '')}">
+                </div>
+                <div class="form-group">
+                  <label>Version Endpoint Path</label>
+                  <input type="text" class="form-input" name="version_path" placeholder="/api/version" value="${esc(project.version_path || '/api/version')}">
+                </div>
+                <div class="form-group">
+                  <label>Version JSON Field</label>
+                  <input type="text" class="form-input" name="version_field" placeholder="git_commit" value="${esc(project.version_field || 'git_commit')}">
+                  <p class="text-sm text-muted mt-1">Dot-path to the commit SHA in the JSON response (e.g. <code>git_commit</code> or <code>backend.git_commit</code>)</p>
+                </div>
+                <div class="form-group">
+                  <label>Health Endpoint Path</label>
+                  <input type="text" class="form-input" name="health_path" placeholder="/health" value="${esc(project.health_path || '/health')}">
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm mt-2">Save URLs</button>
               </form>
             </div>
           </div>
@@ -722,6 +793,19 @@
           input.placeholder = '{"to":["team@example.com"]}';
         }
       });
+
+      // Save deployment URLs
+      document.getElementById('deployment-urls').onsubmit = async e => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        try {
+          await api('/projects/' + params.id, { method: 'PUT', body: JSON.stringify({
+            staging_url: fd.get('staging_url'), uat_url: fd.get('uat_url'), production_url: fd.get('production_url'),
+            version_path: fd.get('version_path'), version_field: fd.get('version_field'), health_path: fd.get('health_path')
+          })});
+          toast('Deployment URLs saved!', 'success');
+        } catch (err) { toast(err.message); }
+      };
 
       // Add provider
       document.getElementById('add-provider').onsubmit = async e => {

@@ -93,6 +93,11 @@ func (p *Poller) pollProvider(ctx context.Context, cp *models.CIProvider) {
 		slog.Error("poller: update next poll", "error", err)
 	}
 
+	// Fall back to global GitHub API token if provider has no token
+	if cp.APIToken == "" && p.cfg.GitHubAPIToken != "" {
+		cp.APIToken = p.cfg.GitHubAPIToken
+	}
+
 	builds, err := prov.FetchBuilds(ctx, cp)
 	if err != nil {
 		slog.Error("poller: fetch builds", "provider_id", cp.ID, "error", err)

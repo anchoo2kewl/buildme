@@ -53,7 +53,7 @@ func (h *SyncHandler) SyncAll(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		prov := providers[0]
-		branches := h.syncProjectBranches(r.Context(), p.ID, prov)
+		branches := h.syncProjectBranches(r.Context(), p, prov)
 		results = append(results, projectResult{Project: p, Branches: branches})
 	}
 
@@ -63,6 +63,11 @@ func (h *SyncHandler) SyncAll(w http.ResponseWriter, r *http.Request) {
 // SyncProject fetches latest builds for one project.
 func (h *SyncHandler) SyncProject(w http.ResponseWriter, r *http.Request) {
 	projectID, _ := strconv.ParseInt(chi.URLParam(r, "projectId"), 10, 64)
+	project, err := h.store.GetProjectByID(r.Context(), projectID)
+	if err != nil || project == nil {
+		jsonError(w, "project not found", http.StatusNotFound)
+		return
+	}
 	providers, err := h.store.ListCIProviders(r.Context(), projectID)
 	if err != nil || len(providers) == 0 {
 		jsonError(w, "no providers configured", http.StatusBadRequest)
@@ -70,7 +75,7 @@ func (h *SyncHandler) SyncProject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	prov := providers[0]
-	branches := h.syncProjectBranches(r.Context(), projectID, prov)
+	branches := h.syncProjectBranches(r.Context(), *project, prov)
 	jsonResp(w, http.StatusOK, branches)
 }
 
@@ -222,7 +227,7 @@ type BranchStatus struct {
 	Error     string          `json:"error,omitempty"`
 }
 
-func (h *SyncHandler) syncProjectBranches(ctx context.Context, projectID int64, prov models.CIProvider) map[string]*BranchStatus {
+func (h *SyncHandler) syncProjectBranches(ctx context.Context, project models.Project, prov models.CIProvider) map[string]*BranchStatus {
 	result := make(map[string]*BranchStatus)
 	branches := []string{"main", "uat", "production"}
 
@@ -250,11 +255,19 @@ func (h *SyncHandler) syncProjectBranches(ctx context.Context, projectID int64, 
 
 		switch prov.ProviderType {
 		case models.ProviderGitHub:
-			build, jobs = h.mapCheckRunsToBuild(checkRuns, projectID, prov.ID, sha, branch, commitMsg, commitAuthor)
+			build, jobs = h.mapCheckRunsToBuild(checkRuns, project.ID, prov.ID, sha, branch, commitMsg, commitAuthor)
+			// Override overall status with workflow-run conclusion (handles continue-on-error jobs)
+			wfRuns, _ := h.fetchWorkflowRuns(ctx, prov.RepoOwner, prov.RepoName, sha)
+			if build != nil && len(wfRuns) > 0 {
+				build.Status = mapCheckRunStatus(wfRuns[0].Status, wfRuns[0].Conclusion)
+				if wfRuns[0].HTMLURL != "" {
+					build.ProviderURL = wfRuns[0].HTMLURL
+				}
+			}
 		case models.ProviderTravis:
-			build, jobs = h.mapCheckRunsToBuild(checkRuns, projectID, prov.ID, sha, branch, commitMsg, commitAuthor)
+			build, jobs = h.mapCheckRunsToBuild(checkRuns, project.ID, prov.ID, sha, branch, commitMsg, commitAuthor)
 		case models.ProviderCircleCI:
-			build, jobs = h.mapStatusesToBuild(statuses, checkRuns, projectID, prov.ID, sha, branch, commitMsg, commitAuthor)
+			build, jobs = h.mapStatusesToBuild(statuses, checkRuns, project.ID, prov.ID, sha, branch, commitMsg, commitAuthor)
 		}
 
 		if build != nil {
@@ -268,7 +281,7 @@ func (h *SyncHandler) syncProjectBranches(ctx context.Context, projectID int64, 
 			// Upsert the build
 			_, err := h.store.UpsertBuild(ctx, build)
 			if err != nil {
-				slog.Error("failed to upsert build", "error", err, "project", projectID, "branch", branch)
+				slog.Error("failed to upsert build", "error", err, "project", project.ID, "branch", branch)
 			}
 
 			// Upsert jobs
@@ -374,6 +387,13 @@ type ghStatus struct {
 	CreatedAt string `json:"created_at"`
 }
 
+type syncWorkflowRun struct {
+	ID         int64   `json:"id"`
+	Status     string  `json:"status"`
+	Conclusion *string `json:"conclusion"`
+	HTMLURL    string  `json:"html_url"`
+}
+
 func (h *SyncHandler) fetchStatuses(ctx context.Context, owner, repo, sha string) ([]ghStatus, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/commits/%s/statuses", owner, repo, sha)
 	data, err := h.ghGet(ctx, url)
@@ -385,6 +405,21 @@ func (h *SyncHandler) fetchStatuses(ctx context.Context, owner, repo, sha string
 		return nil, err
 	}
 	return statuses, nil
+}
+
+func (h *SyncHandler) fetchWorkflowRuns(ctx context.Context, owner, repo, sha string) ([]syncWorkflowRun, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/actions/runs?head_sha=%s&per_page=5", owner, repo, sha)
+	data, err := h.ghGet(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		WorkflowRuns []syncWorkflowRun `json:"workflow_runs"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	return resp.WorkflowRuns, nil
 }
 
 // Mapping helpers
@@ -622,4 +657,112 @@ func minLen(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// DriftCheck fetches deployed versions from each project's version endpoint.
+func (h *SyncHandler) DriftCheck(w http.ResponseWriter, r *http.Request) {
+	user := UserFromCtx(r.Context())
+	projects, err := h.store.ListProjectsForUser(r.Context(), user.ID)
+	if err != nil {
+		jsonError(w, "failed to list projects", http.StatusInternalServerError)
+		return
+	}
+
+	type driftResult struct {
+		ProjectID   int64  `json:"project_id"`
+		Env         string `json:"env"`
+		DeployedSHA string `json:"deployed_sha"`
+		Health      int    `json:"health"`
+	}
+
+	var results []driftResult
+	for _, p := range projects {
+		envURLs := map[string]string{
+			"staging": p.StagingURL, "uat": p.UATURL, "production": p.ProductionURL,
+		}
+		for env, baseURL := range envURLs {
+			if baseURL == "" {
+				continue
+			}
+			dr := driftResult{ProjectID: p.ID, Env: env}
+
+			versionPath := p.VersionPath
+			if versionPath == "" {
+				versionPath = "/api/version"
+			}
+			versionField := p.VersionField
+			if versionField == "" {
+				versionField = "git_commit"
+			}
+			dr.DeployedSHA = h.fetchDeployedVersion(r.Context(), baseURL+versionPath, versionField)
+
+			healthPath := p.HealthPath
+			if healthPath == "" {
+				healthPath = "/health"
+			}
+			dr.Health = h.checkHealth(r.Context(), baseURL+healthPath)
+
+			results = append(results, dr)
+		}
+	}
+
+	jsonResp(w, http.StatusOK, results)
+}
+
+func (h *SyncHandler) fetchDeployedVersion(ctx context.Context, url, field string) string {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "BuildMe/1.0")
+
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return ""
+	}
+
+	var data map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return ""
+	}
+
+	return extractField(data, field)
+}
+
+func extractField(data map[string]interface{}, path string) string {
+	parts := strings.Split(path, ".")
+	current := interface{}(data)
+	for _, part := range parts {
+		m, ok := current.(map[string]interface{})
+		if !ok {
+			return ""
+		}
+		current = m[part]
+	}
+	s, ok := current.(string)
+	if !ok {
+		return ""
+	}
+	return s
+}
+
+func (h *SyncHandler) checkHealth(ctx context.Context, url string) int {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req.Header.Set("User-Agent", "BuildMe/1.0")
+
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return 0
+	}
+	resp.Body.Close()
+	return resp.StatusCode
 }
