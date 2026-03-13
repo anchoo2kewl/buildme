@@ -55,7 +55,7 @@ func main() {
 	poll := poller.New(db, registry, hub, dispatcher, cfg)
 	go poll.Run()
 
-	router := api.NewRouter(db, cfg, hub, registry)
+	router := api.NewRouter(db, cfg, hub, registry, dispatcher)
 	addr := ":" + strconv.Itoa(cfg.Port)
 
 	srv := &http.Server{

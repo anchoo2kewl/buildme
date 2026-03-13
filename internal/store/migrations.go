@@ -128,4 +128,10 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
     p256dh_key TEXT NOT NULL,
     auth_key TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT '',
+    updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
+);
 `

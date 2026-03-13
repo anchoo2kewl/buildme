@@ -7,9 +7,12 @@ import (
 	"net/http"
 	"time"
 
+	"log/slog"
+
 	"github.com/anchoo2kewl/buildme/internal/auth"
 	"github.com/anchoo2kewl/buildme/internal/config"
 	"github.com/anchoo2kewl/buildme/internal/models"
+	"github.com/anchoo2kewl/buildme/internal/notify"
 	"github.com/anchoo2kewl/buildme/internal/store"
 )
 
@@ -200,6 +203,22 @@ func (h *AuthHandler) CreateInvite(w http.ResponseWriter, r *http.Request) {
 	if user.InvitesRemaining > 0 {
 		user.InvitesRemaining--
 		h.store.UpdateUser(r.Context(), user)
+	}
+
+	// Send invite email if recipient email provided and SMTP is configured
+	if req.Email != "" {
+		settings, _ := h.store.GetSettings(r.Context(), "smtp.")
+		var smtp *notify.SMTPConfig
+		if settings["smtp.host"] != "" {
+			smtp = notify.SMTPFromSettings(settings)
+		} else {
+			smtp = notify.SMTPFromConfig(h.cfg)
+		}
+		if smtp.IsConfigured() {
+			if err := notify.SendInviteEmail(smtp, req.Email, code, h.cfg.BaseURL); err != nil {
+				slog.Warn("failed to send invite email", "to", req.Email, "error", err)
+			}
+		}
 	}
 
 	jsonResp(w, http.StatusCreated, invite)

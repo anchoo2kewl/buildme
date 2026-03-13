@@ -11,6 +11,7 @@ import (
 
 	"github.com/anchoo2kewl/buildme/internal/config"
 	"github.com/anchoo2kewl/buildme/internal/models"
+	"github.com/anchoo2kewl/buildme/internal/notify"
 	"github.com/anchoo2kewl/buildme/internal/provider"
 	"github.com/anchoo2kewl/buildme/internal/store"
 	"github.com/anchoo2kewl/buildme/internal/ws"
@@ -19,7 +20,7 @@ import (
 	"github.com/go-chi/cors"
 )
 
-func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provider.Registry) http.Handler {
+func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provider.Registry, dispatcher *notify.Dispatcher) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.Logger)
@@ -38,10 +39,11 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 	projectH := &ProjectHandler{store: s}
 	providerH := &ProviderHandler{store: s, registry: registry}
 	buildH := &BuildHandler{store: s}
-	memberH := &MemberHandler{store: s}
+	memberH := &MemberHandler{store: s, cfg: cfg}
 	channelH := &ChannelHandler{store: s}
 	wsH := &WSHandler{hub: hub}
-	syncH := &SyncHandler{store: s, cfg: cfg, client: &http.Client{Timeout: 30 * time.Second}}
+	syncH := &SyncHandler{store: s, cfg: cfg, client: &http.Client{Timeout: 30 * time.Second}, dispatcher: dispatcher}
+	adminH := &AdminHandler{store: s}
 
 	// Health + version
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -77,6 +79,11 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 		r.Get("/api/dashboard", syncH.Dashboard)
 		r.Post("/api/sync", syncH.SyncAll)
 
+		// Admin settings (super admin only)
+		r.Get("/api/admin/email-settings", adminH.GetEmailSettings)
+		r.Put("/api/admin/email-settings", adminH.UpdateEmailSettings)
+		r.Post("/api/admin/test-email", adminH.TestEmail)
+
 		// Projects (user-level)
 		r.Get("/api/projects", projectH.List)
 		r.Post("/api/projects", projectH.Create)
@@ -98,6 +105,7 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 			// Builds (viewer+)
 			r.Get("/builds", buildH.List)
 			r.Get("/builds/{buildId}", buildH.Get)
+			r.Post("/builds/{buildId}/retrigger", syncH.RetriggerBuild)
 			r.Post("/sync", syncH.SyncProject)
 
 			// Providers (admin+)
@@ -155,20 +163,17 @@ func serveSPA(r chi.Router, distPath string) {
 	fileServer := http.FileServer(http.Dir(absPath))
 
 	r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
-		// Don't serve SPA for API routes
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			http.NotFound(w, r)
 			return
 		}
 
-		// Try to serve the file directly
 		path := filepath.Join(absPath, r.URL.Path)
 		if info, err := os.Stat(path); err == nil && !info.IsDir() {
 			fileServer.ServeHTTP(w, r)
 			return
 		}
 
-		// SPA fallback: serve index.html
 		indexPath := filepath.Join(absPath, "index.html")
 		if _, err := fs.Stat(os.DirFS(absPath), "index.html"); err == nil {
 			http.ServeFile(w, r, indexPath)

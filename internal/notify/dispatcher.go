@@ -128,6 +128,12 @@ func (d *Dispatcher) matchesFilter(filterJSON, eventType string) bool {
 func (d *Dispatcher) send(ctx context.Context, ch *models.NotificationChannel, build *models.Build, eventType string) error {
 	switch ch.ChannelType {
 	case models.ChannelEmail:
+		// Try DB-backed SMTP settings first, fallback to env config
+		settings, _ := d.store.GetSettings(ctx, "smtp.")
+		if settings["smtp.host"] != "" {
+			smtp := SMTPFromSettings(settings)
+			return SendEmailWithSettings(smtp, ch.Config, build, eventType)
+		}
 		return sendEmail(d.cfg, ch.Config, build, eventType)
 	case models.ChannelWebhook:
 		return sendWebhook(ch.Config, build, eventType)
@@ -135,6 +141,15 @@ func (d *Dispatcher) send(ctx context.Context, ch *models.NotificationChannel, b
 		return d.sendWebPush(ctx, ch, build, eventType)
 	}
 	return nil
+}
+
+// GetSMTPConfig returns SMTP config from DB settings, falling back to env config.
+func (d *Dispatcher) GetSMTPConfig(ctx context.Context) *SMTPConfig {
+	settings, _ := d.store.GetSettings(ctx, "smtp.")
+	if settings["smtp.host"] != "" {
+		return SMTPFromSettings(settings)
+	}
+	return SMTPFromConfig(d.cfg)
 }
 
 func (d *Dispatcher) processRetries() {

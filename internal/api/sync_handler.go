@@ -13,14 +13,16 @@ import (
 
 	"github.com/anchoo2kewl/buildme/internal/config"
 	"github.com/anchoo2kewl/buildme/internal/models"
+	"github.com/anchoo2kewl/buildme/internal/notify"
 	"github.com/anchoo2kewl/buildme/internal/store"
 	"github.com/go-chi/chi/v5"
 )
 
 type SyncHandler struct {
-	store  store.Store
-	cfg    *config.Config
-	client *http.Client
+	store      store.Store
+	cfg        *config.Config
+	client     *http.Client
+	dispatcher *notify.Dispatcher
 }
 
 // Branch-to-environment mapping
@@ -86,17 +88,128 @@ func (h *SyncHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 		Builds  []models.Build `json:"builds"`
 	}
 
+	branches := []string{"main", "uat", "production"}
 	results := make([]dashEntry, 0, len(projects))
 	for _, p := range projects {
-		builds, _, _ := h.store.ListBuilds(r.Context(), p.ID, models.BuildFilter{
-			Pagination: models.Pagination{Page: 1, PerPage: 10},
-		})
-		if builds == nil {
-			builds = []models.Build{}
+		var allBuilds []models.Build
+		for _, branch := range branches {
+			builds, _, _ := h.store.ListBuilds(r.Context(), p.ID, models.BuildFilter{
+				Branch:     branch,
+				Pagination: models.Pagination{Page: 1, PerPage: 1},
+			})
+			if len(builds) > 0 {
+				jobs, _ := h.store.ListBuildJobs(r.Context(), builds[0].ID)
+				if jobs == nil {
+					jobs = []models.BuildJob{}
+				}
+				builds[0].Jobs = jobs
+				allBuilds = append(allBuilds, builds[0])
+			}
 		}
-		results = append(results, dashEntry{Project: p, Builds: builds})
+		if allBuilds == nil {
+			allBuilds = []models.Build{}
+		}
+		results = append(results, dashEntry{Project: p, Builds: allBuilds})
 	}
 	jsonResp(w, http.StatusOK, results)
+}
+
+// RetriggerBuild re-runs a build on the CI provider.
+func (h *SyncHandler) RetriggerBuild(w http.ResponseWriter, r *http.Request) {
+	buildID, _ := strconv.ParseInt(chi.URLParam(r, "buildId"), 10, 64)
+	build, err := h.store.GetBuildByID(r.Context(), buildID)
+	if err != nil || build == nil {
+		jsonError(w, "build not found", http.StatusNotFound)
+		return
+	}
+
+	prov, err := h.store.GetCIProviderByID(r.Context(), build.ProviderID)
+	if err != nil || prov == nil {
+		jsonError(w, "provider not found", http.StatusNotFound)
+		return
+	}
+
+	switch prov.ProviderType {
+	case models.ProviderGitHub, models.ProviderTravis:
+		err = h.retriggerCheckSuites(r.Context(), prov, build)
+	case models.ProviderCircleCI:
+		err = h.retriggerCircleCI(r.Context(), prov, build)
+	default:
+		jsonError(w, "unsupported provider", http.StatusBadRequest)
+		return
+	}
+
+	if err != nil {
+		slog.Error("retrigger failed", "error", err, "build_id", buildID)
+		jsonError(w, "retrigger failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	jsonResp(w, http.StatusOK, map[string]string{"message": "retrigger requested"})
+}
+
+func (h *SyncHandler) retriggerCheckSuites(ctx context.Context, prov *models.CIProvider, build *models.Build) error {
+	// Get check suites for the commit
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/commits/%s/check-suites", prov.RepoOwner, prov.RepoName, build.CommitSHA)
+	data, err := h.ghGet(ctx, url)
+	if err != nil {
+		return fmt.Errorf("fetch check suites: %w", err)
+	}
+
+	var resp struct {
+		CheckSuites []struct {
+			ID int64 `json:"id"`
+		} `json:"check_suites"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return err
+	}
+
+	// Re-request each check suite
+	for _, cs := range resp.CheckSuites {
+		rerunURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/check-suites/%d/rerequest", prov.RepoOwner, prov.RepoName, cs.ID)
+		if err := h.ghPost(ctx, rerunURL); err != nil {
+			slog.Warn("retrigger check suite failed", "suite_id", cs.ID, "error", err)
+		}
+	}
+	return nil
+}
+
+func (h *SyncHandler) retriggerCircleCI(ctx context.Context, prov *models.CIProvider, build *models.Build) error {
+	url := fmt.Sprintf("https://circleci.com/api/v2/project/gh/%s/%s/pipeline", prov.RepoOwner, prov.RepoName)
+	body := fmt.Sprintf(`{"branch":"%s"}`, build.Branch)
+
+	req, _ := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	if prov.APIToken != "" {
+		req.Header.Set("Circle-Token", prov.APIToken)
+	}
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("circleci API: %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func (h *SyncHandler) ghPost(ctx context.Context, url string) error {
+	req, _ := http.NewRequestWithContext(ctx, "POST", url, nil)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	if h.cfg.GitHubAPIToken != "" {
+		req.Header.Set("Authorization", "Bearer "+h.cfg.GitHubAPIToken)
+	}
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("github api: %d", resp.StatusCode)
+	}
+	return nil
 }
 
 // BranchStatus holds the build info for one branch.
@@ -145,17 +258,28 @@ func (h *SyncHandler) syncProjectBranches(ctx context.Context, projectID int64, 
 		}
 
 		if build != nil {
+			// Check old status for notification dispatch
+			oldBuild, _ := h.store.GetBuildByExternalID(ctx, build.ProviderID, build.ExternalID)
+			oldStatus := models.BuildStatus("")
+			if oldBuild != nil {
+				oldStatus = oldBuild.Status
+			}
+
 			// Upsert the build
-			isNew, err := h.store.UpsertBuild(ctx, build)
+			_, err := h.store.UpsertBuild(ctx, build)
 			if err != nil {
 				slog.Error("failed to upsert build", "error", err, "project", projectID, "branch", branch)
 			}
-			_ = isNew
 
 			// Upsert jobs
 			for i := range jobs {
 				jobs[i].BuildID = build.ID
 				h.store.UpsertBuildJob(ctx, &jobs[i])
+			}
+
+			// Dispatch notifications for terminal builds
+			if h.dispatcher != nil && build.Status.IsTerminal() && oldStatus != build.Status {
+				h.dispatcher.Dispatch(ctx, build, oldStatus)
 			}
 
 			// Re-fetch jobs from DB to get IDs

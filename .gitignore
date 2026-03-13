@@ -7,4 +7,4 @@ buildme-*
 frontend/node_modules/
 frontend/server/
 frontend/.qwik/
-server
+/server

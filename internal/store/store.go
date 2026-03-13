@@ -76,4 +76,9 @@ type Store interface {
 	CreatePushSubscription(ctx context.Context, sub *models.PushSubscription) error
 	DeletePushSubscription(ctx context.Context, id int64) error
 	ListPushSubscriptions(ctx context.Context, userIDs []int64) ([]models.PushSubscription, error)
+
+	// App Settings
+	GetSetting(ctx context.Context, key string) (string, error)
+	SetSetting(ctx context.Context, key string, value string) error
+	GetSettings(ctx context.Context, prefix string) (map[string]string, error)
 }

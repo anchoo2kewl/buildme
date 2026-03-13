@@ -673,3 +673,40 @@ func (s *SQLiteStore) ListPushSubscriptions(ctx context.Context, userIDs []int64
 	}
 	return subs, rows.Err()
 }
+
+// App Settings
+
+func (s *SQLiteStore) GetSetting(ctx context.Context, key string) (string, error) {
+	var value string
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM app_settings WHERE key = ?`, key).Scan(&value)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return value, err
+}
+
+func (s *SQLiteStore) SetSetting(ctx context.Context, key string, value string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
+		key, value)
+	return err
+}
+
+func (s *SQLiteStore) GetSettings(ctx context.Context, prefix string) (map[string]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT key, value FROM app_settings WHERE key LIKE ?`, prefix+"%")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	settings := make(map[string]string)
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, err
+		}
+		settings[k] = v
+	}
+	return settings, rows.Err()
+}
