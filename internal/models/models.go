@@ -77,16 +77,29 @@ const (
 
 // User represents an application user.
 type User struct {
-	ID           int64     `json:"id"`
-	Email        string    `json:"email"`
-	PasswordHash string    `json:"-"`
-	GitHubID     *int64    `json:"github_id,omitempty"`
-	GitHubLogin  string    `json:"github_login,omitempty"`
-	DisplayName  string    `json:"display_name"`
-	AvatarURL    string    `json:"avatar_url,omitempty"`
-	IsSuperAdmin bool      `json:"is_super_admin"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID               int64     `json:"id"`
+	Email            string    `json:"email"`
+	PasswordHash     string    `json:"-"`
+	GitHubID         *int64    `json:"github_id,omitempty"`
+	GitHubLogin      string    `json:"github_login,omitempty"`
+	DisplayName      string    `json:"display_name"`
+	AvatarURL        string    `json:"avatar_url,omitempty"`
+	IsSuperAdmin     bool      `json:"is_super_admin"`
+	InvitesRemaining int       `json:"invites_remaining"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+// Invite represents a registration invite code.
+type Invite struct {
+	ID        int64      `json:"id"`
+	Code      string     `json:"code"`
+	CreatedBy int64      `json:"created_by"`
+	UsedBy    *int64     `json:"used_by,omitempty"`
+	Email     string     `json:"email,omitempty"`
+	UsedAt    *time.Time `json:"used_at,omitempty"`
+	ExpiresAt time.Time  `json:"expires_at"`
+	CreatedAt time.Time  `json:"created_at"`
 }
 
 // Project represents a monitored project group.

@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/anchoo2kewl/buildme/internal/api"
+	"github.com/anchoo2kewl/buildme/internal/auth"
 	"github.com/anchoo2kewl/buildme/internal/config"
+	"github.com/anchoo2kewl/buildme/internal/models"
 	"github.com/anchoo2kewl/buildme/internal/notify"
 	"github.com/anchoo2kewl/buildme/internal/poller"
 	"github.com/anchoo2kewl/buildme/internal/provider"
@@ -39,6 +41,9 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+
+	// Seed admin user if not exists
+	seedAdmin(db, cfg)
 
 	hub := ws.NewHub()
 	go hub.Run()
@@ -85,4 +90,35 @@ func main() {
 		slog.Error("server shutdown error", "error", err)
 	}
 	slog.Info("stopped")
+}
+
+func seedAdmin(db store.Store, cfg *config.Config) {
+	ctx := context.Background()
+	existing, _ := db.GetUserByEmail(ctx, cfg.AdminEmail)
+	if existing != nil {
+		return
+	}
+
+	password := cfg.AdminPassword
+	if password == "" {
+		password = "BuildMe2026!"
+	}
+	hash, err := auth.Hash(password)
+	if err != nil {
+		slog.Error("failed to hash admin password", "error", err)
+		return
+	}
+
+	admin := &models.User{
+		Email:            cfg.AdminEmail,
+		PasswordHash:     hash,
+		DisplayName:      cfg.AdminName,
+		IsSuperAdmin:     true,
+		InvitesRemaining: -1, // unlimited
+	}
+	if err := db.CreateUser(ctx, admin); err != nil {
+		slog.Error("failed to seed admin user", "error", err)
+		return
+	}
+	slog.Info("admin user seeded", "email", cfg.AdminEmail)
 }

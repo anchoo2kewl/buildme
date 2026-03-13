@@ -25,6 +25,9 @@ type Config struct {
 	SMTPFrom        string
 	VAPIDPublicKey  string
 	VAPIDPrivateKey string
+	AdminEmail      string
+	AdminPassword   string
+	AdminName       string
 }
 
 func Load() (*Config, error) {
@@ -46,6 +49,9 @@ func Load() (*Config, error) {
 		SMTPFrom:        envStr("BUILDME_SMTP_FROM", ""),
 		VAPIDPublicKey:  envStr("BUILDME_VAPID_PUBLIC_KEY", ""),
 		VAPIDPrivateKey: envStr("BUILDME_VAPID_PRIVATE_KEY", ""),
+		AdminEmail:      envStr("BUILDME_ADMIN_EMAIL", "admin@buildme.dev"),
+		AdminPassword:   envStr("BUILDME_ADMIN_PASSWORD", ""),
+		AdminName:       envStr("BUILDME_ADMIN_NAME", "anshuman"),
 	}
 
 	if c.JWTSecret == "" {

@@ -39,9 +39,9 @@ func (s *SQLiteStore) Close() error {
 
 func (s *SQLiteStore) CreateUser(ctx context.Context, u *models.User) error {
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO users (email, password_hash, github_id, github_login, display_name, avatar_url, is_super_admin)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		u.Email, u.PasswordHash, u.GitHubID, u.GitHubLogin, u.DisplayName, u.AvatarURL, u.IsSuperAdmin)
+		`INSERT INTO users (email, password_hash, github_id, github_login, display_name, avatar_url, is_super_admin, invites_remaining)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		u.Email, u.PasswordHash, u.GitHubID, u.GitHubLogin, u.DisplayName, u.AvatarURL, u.IsSuperAdmin, u.InvitesRemaining)
 	if err != nil {
 		return err
 	}
@@ -51,34 +51,34 @@ func (s *SQLiteStore) CreateUser(ctx context.Context, u *models.User) error {
 
 func (s *SQLiteStore) GetUserByID(ctx context.Context, id int64) (*models.User, error) {
 	return s.scanUser(s.db.QueryRowContext(ctx,
-		`SELECT id, email, password_hash, github_id, github_login, display_name, avatar_url, is_super_admin, created_at, updated_at
+		`SELECT id, email, password_hash, github_id, github_login, display_name, avatar_url, is_super_admin, invites_remaining, created_at, updated_at
 		 FROM users WHERE id = ?`, id))
 }
 
 func (s *SQLiteStore) GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
 	return s.scanUser(s.db.QueryRowContext(ctx,
-		`SELECT id, email, password_hash, github_id, github_login, display_name, avatar_url, is_super_admin, created_at, updated_at
+		`SELECT id, email, password_hash, github_id, github_login, display_name, avatar_url, is_super_admin, invites_remaining, created_at, updated_at
 		 FROM users WHERE email = ?`, email))
 }
 
 func (s *SQLiteStore) GetUserByGitHubID(ctx context.Context, githubID int64) (*models.User, error) {
 	return s.scanUser(s.db.QueryRowContext(ctx,
-		`SELECT id, email, password_hash, github_id, github_login, display_name, avatar_url, is_super_admin, created_at, updated_at
+		`SELECT id, email, password_hash, github_id, github_login, display_name, avatar_url, is_super_admin, invites_remaining, created_at, updated_at
 		 FROM users WHERE github_id = ?`, githubID))
 }
 
 func (s *SQLiteStore) UpdateUser(ctx context.Context, u *models.User) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE users SET email=?, password_hash=?, github_id=?, github_login=?, display_name=?, avatar_url=?, updated_at=datetime('now')
+		`UPDATE users SET email=?, password_hash=?, github_id=?, github_login=?, display_name=?, avatar_url=?, invites_remaining=?, updated_at=datetime('now')
 		 WHERE id=?`,
-		u.Email, u.PasswordHash, u.GitHubID, u.GitHubLogin, u.DisplayName, u.AvatarURL, u.ID)
+		u.Email, u.PasswordHash, u.GitHubID, u.GitHubLogin, u.DisplayName, u.AvatarURL, u.InvitesRemaining, u.ID)
 	return err
 }
 
 func (s *SQLiteStore) scanUser(row *sql.Row) (*models.User, error) {
 	u := &models.User{}
 	err := row.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.GitHubID, &u.GitHubLogin,
-		&u.DisplayName, &u.AvatarURL, &u.IsSuperAdmin, &u.CreatedAt, &u.UpdatedAt)
+		&u.DisplayName, &u.AvatarURL, &u.IsSuperAdmin, &u.InvitesRemaining, &u.CreatedAt, &u.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -569,6 +569,58 @@ func (s *SQLiteStore) GetPendingRetries(ctx context.Context, now time.Time) ([]m
 		logs = append(logs, l)
 	}
 	return logs, rows.Err()
+}
+
+// --- Invites ---
+
+func (s *SQLiteStore) CreateInvite(ctx context.Context, inv *models.Invite) error {
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO invites (code, created_by, email, expires_at) VALUES (?, ?, ?, ?)`,
+		inv.Code, inv.CreatedBy, inv.Email, inv.ExpiresAt)
+	if err != nil {
+		return err
+	}
+	inv.ID, _ = res.LastInsertId()
+	return nil
+}
+
+func (s *SQLiteStore) GetInviteByCode(ctx context.Context, code string) (*models.Invite, error) {
+	inv := &models.Invite{}
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, code, created_by, used_by, email, used_at, expires_at, created_at
+		 FROM invites WHERE code = ?`, code).
+		Scan(&inv.ID, &inv.Code, &inv.CreatedBy, &inv.UsedBy, &inv.Email, &inv.UsedAt, &inv.ExpiresAt, &inv.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return inv, err
+}
+
+func (s *SQLiteStore) RedeemInvite(ctx context.Context, code string, userID int64) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE invites SET used_by = ?, used_at = datetime('now') WHERE code = ? AND used_by IS NULL`,
+		userID, code)
+	return err
+}
+
+func (s *SQLiteStore) ListInvitesByUser(ctx context.Context, userID int64) ([]models.Invite, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, code, created_by, used_by, email, used_at, expires_at, created_at
+		 FROM invites WHERE created_by = ? ORDER BY created_at DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var invites []models.Invite
+	for rows.Next() {
+		var inv models.Invite
+		if err := rows.Scan(&inv.ID, &inv.Code, &inv.CreatedBy, &inv.UsedBy, &inv.Email, &inv.UsedAt, &inv.ExpiresAt, &inv.CreatedAt); err != nil {
+			return nil, err
+		}
+		invites = append(invites, inv)
+	}
+	return invites, rows.Err()
 }
 
 // --- Push Subscriptions ---

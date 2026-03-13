@@ -1,6 +1,8 @@
 package api
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -16,19 +18,36 @@ type AuthHandler struct {
 	cfg   *config.Config
 }
 
+// Signup requires an invite code. No open registration.
 func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Email       string `json:"email"`
 		Password    string `json:"password"`
 		DisplayName string `json:"display_name"`
+		InviteCode  string `json:"invite_code"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	if req.Email == "" || req.Password == "" {
-		jsonError(w, "email and password required", http.StatusBadRequest)
+	if req.Email == "" || req.Password == "" || req.InviteCode == "" {
+		jsonError(w, "email, password, and invite_code required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate invite code
+	invite, _ := h.store.GetInviteByCode(r.Context(), req.InviteCode)
+	if invite == nil {
+		jsonError(w, "invalid invite code", http.StatusForbidden)
+		return
+	}
+	if invite.UsedBy != nil {
+		jsonError(w, "invite code already used", http.StatusForbidden)
+		return
+	}
+	if time.Now().After(invite.ExpiresAt) {
+		jsonError(w, "invite code expired", http.StatusForbidden)
 		return
 	}
 
@@ -55,14 +74,18 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := &models.User{
-		Email:        req.Email,
-		PasswordHash: hash,
-		DisplayName:  displayName,
+		Email:            req.Email,
+		PasswordHash:     hash,
+		DisplayName:      displayName,
+		InvitesRemaining: 1, // New users get 1 invite
 	}
 	if err := h.store.CreateUser(r.Context(), user); err != nil {
 		jsonError(w, "failed to create user", http.StatusInternalServerError)
 		return
 	}
+
+	// Redeem the invite
+	h.store.RedeemInvite(r.Context(), req.InviteCode, user.ID)
 
 	token, err := auth.GenerateToken(user.ID, h.cfg.JWTSecret, 7*24*time.Hour)
 	if err != nil {
@@ -145,6 +168,57 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	jsonResp(w, http.StatusOK, map[string]string{"message": "password changed"})
 }
 
+// CreateInvite generates an invite code for the authenticated user.
+func (h *AuthHandler) CreateInvite(w http.ResponseWriter, r *http.Request) {
+	user := UserFromCtx(r.Context())
+
+	// -1 means unlimited invites (admin)
+	if user.InvitesRemaining == 0 {
+		jsonError(w, "no invites remaining", http.StatusForbidden)
+		return
+	}
+
+	var req struct {
+		Email string `json:"email"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	code := generateInviteCode()
+	invite := &models.Invite{
+		Code:      code,
+		CreatedBy: user.ID,
+		Email:     req.Email,
+		ExpiresAt: time.Now().Add(7 * 24 * time.Hour), // 7 days
+	}
+
+	if err := h.store.CreateInvite(r.Context(), invite); err != nil {
+		jsonError(w, "failed to create invite", http.StatusInternalServerError)
+		return
+	}
+
+	// Decrement invites (skip if unlimited = -1)
+	if user.InvitesRemaining > 0 {
+		user.InvitesRemaining--
+		h.store.UpdateUser(r.Context(), user)
+	}
+
+	jsonResp(w, http.StatusCreated, invite)
+}
+
+// ListInvites returns invites created by the authenticated user.
+func (h *AuthHandler) ListInvites(w http.ResponseWriter, r *http.Request) {
+	user := UserFromCtx(r.Context())
+	invites, err := h.store.ListInvitesByUser(r.Context(), user.ID)
+	if err != nil {
+		jsonError(w, "failed to list invites", http.StatusInternalServerError)
+		return
+	}
+	if invites == nil {
+		invites = []models.Invite{}
+	}
+	jsonResp(w, http.StatusOK, invites)
+}
+
 func (h *AuthHandler) GitHubRedirect(w http.ResponseWriter, r *http.Request) {
 	if h.cfg.GitHubClientID == "" {
 		jsonError(w, "GitHub OAuth not configured", http.StatusNotImplemented)
@@ -187,22 +261,9 @@ func (h *AuthHandler) GitHubCallback(w http.ResponseWriter, r *http.Request) {
 			}
 			h.store.UpdateUser(r.Context(), user)
 		} else {
-			// Create new user
-			displayName := ghUser.Name
-			if displayName == "" {
-				displayName = ghUser.Login
-			}
-			user = &models.User{
-				Email:       ghUser.Email,
-				GitHubID:    &ghUser.ID,
-				GitHubLogin: ghUser.Login,
-				DisplayName: displayName,
-				AvatarURL:   ghUser.AvatarURL,
-			}
-			if err := h.store.CreateUser(r.Context(), user); err != nil {
-				jsonError(w, "failed to create user", http.StatusInternalServerError)
-				return
-			}
+			// GitHub OAuth for new users is not allowed without invite
+			jsonError(w, "invite required for new accounts", http.StatusForbidden)
+			return
 		}
 	}
 
@@ -214,4 +275,10 @@ func (h *AuthHandler) GitHubCallback(w http.ResponseWriter, r *http.Request) {
 
 	// Redirect to frontend with token
 	http.Redirect(w, r, h.cfg.BaseURL+"/auth/github-callback?token="+token, http.StatusTemporaryRedirect)
+}
+
+func generateInviteCode() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return hex.EncodeToString(b)
 }

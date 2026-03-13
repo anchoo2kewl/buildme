@@ -66,6 +66,12 @@ type Store interface {
 	UpdateNotificationLog(ctx context.Context, log *models.NotificationLog) error
 	GetPendingRetries(ctx context.Context, now time.Time) ([]models.NotificationLog, error)
 
+	// Invites
+	CreateInvite(ctx context.Context, invite *models.Invite) error
+	GetInviteByCode(ctx context.Context, code string) (*models.Invite, error)
+	RedeemInvite(ctx context.Context, code string, userID int64) error
+	ListInvitesByUser(ctx context.Context, userID int64) ([]models.Invite, error)
+
 	// Push Subscriptions
 	CreatePushSubscription(ctx context.Context, sub *models.PushSubscription) error
 	DeletePushSubscription(ctx context.Context, id int64) error

@@ -25,48 +25,62 @@ jobs:
 
   build-and-deploy:
     docker:
-      - image: cimg/go:1.24-node
+      - image: cimg/base:current
     steps:
       - checkout
-      - restore_cache:
-          keys:
-            - go-mod-{{ checksum "go.sum" }}
-      - run:
-          name: Download Go dependencies
-          command: go mod download
-      - save_cache:
-          key: go-mod-{{ checksum "go.sum" }}
-          paths:
-            - ~/go/pkg/mod
+      - setup_remote_docker:
+          docker_layer_caching: true
 
-      # Build frontend
-      - restore_cache:
-          keys:
-            - npm-{{ checksum "frontend/package-lock.json" }}
       - run:
-          name: Install frontend dependencies
-          command: cd frontend && npm ci
-      - save_cache:
-          key: npm-{{ checksum "frontend/package-lock.json" }}
-          paths:
-            - frontend/node_modules
-      - run:
-          name: Build frontend
-          command: cd frontend && npm run build
-
-      # Build Go binary
-      - run:
-          name: Build binary
+          name: Set build metadata
           command: |
-            VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "0.0.0-${CIRCLE_SHA1:0:7}")
-            COMMIT=${CIRCLE_SHA1:0:7}
-            BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-            GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build \
-              -ldflags "-s -w \
-                -X github.com/anchoo2kewl/buildme/internal/version.Version=${VERSION} \
-                -X github.com/anchoo2kewl/buildme/internal/version.GitCommit=${COMMIT} \
-                -X github.com/anchoo2kewl/buildme/internal/version.BuildTime=${BUILD_TIME}" \
-              -o buildme-linux-amd64 ./cmd/server
+            echo "export VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "0.0.0-${CIRCLE_SHA1:0:7}")" >> "$BASH_ENV"
+            echo "export GIT_COMMIT=${CIRCLE_SHA1:0:7}" >> "$BASH_ENV"
+            echo "export BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$BASH_ENV"
+            echo "export TAG=git-${CIRCLE_SHA1:0:7}" >> "$BASH_ENV"
+            echo "export IMAGE_NAME=harbor.biswas.me/biswas/buildme" >> "$BASH_ENV"
+
+      - run:
+          name: Login to Harbor
+          command: |
+            HARBOR_USERNAME=$(echo "$HARBOR_AUTH" | base64 -d | cut -d: -f1)
+            HARBOR_PASSWORD=$(echo "$HARBOR_AUTH" | base64 -d | cut -d: -f2)
+            echo "$HARBOR_PASSWORD" | docker login harbor.biswas.me -u "$HARBOR_USERNAME" --password-stdin
+
+      - run:
+          name: Build Docker image
+          command: |
+            docker build \
+              --build-arg "VERSION=$VERSION" \
+              --build-arg "COMMIT=$GIT_COMMIT" \
+              --build-arg "BUILD_TIME=$BUILD_TIME" \
+              -t "$IMAGE_NAME:$TAG" \
+              -t "$IMAGE_NAME:latest" \
+              .
+
+      - run:
+          name: Push to Harbor
+          command: |
+            docker push "$IMAGE_NAME:$TAG"
+            docker push "$IMAGE_NAME:latest"
+            # Extract digest
+            DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_NAME:$TAG" | cut -d@ -f2)
+            echo "export IMAGE_DIGEST=$DIGEST" >> "$BASH_ENV"
+            echo "Pushed $IMAGE_NAME:$TAG ($DIGEST)"
+
+      - run:
+          name: Tag as production-latest
+          command: |
+            HARBOR_USERNAME=$(echo "$HARBOR_AUTH" | base64 -d | cut -d: -f1)
+            HARBOR_PASSWORD=$(echo "$HARBOR_AUTH" | base64 -d | cut -d: -f2)
+            # Delete existing production-latest tag
+            curl -sf -u "$HARBOR_USERNAME:$HARBOR_PASSWORD" \
+              -X DELETE "https://harbor.biswas.me/api/v2.0/projects/biswas/repositories/buildme/artifacts/production-latest/tags/production-latest" 2>/dev/null || true
+            # Create new production-latest tag
+            curl -sf -u "$HARBOR_USERNAME:$HARBOR_PASSWORD" \
+              -X POST "https://harbor.biswas.me/api/v2.0/projects/biswas/repositories/buildme/artifacts/$IMAGE_DIGEST/tags" \
+              -H "Content-Type: application/json" \
+              -d '{"name": "production-latest"}'
 
       # Deploy to production
       - add_ssh_keys:
@@ -75,15 +89,23 @@ jobs:
       - run:
           name: Deploy to production
           command: |
-            # Upload binary
-            scp -o StrictHostKeyChecking=no buildme-linux-amd64 ubuntu@31.97.102.48:/tmp/buildme-new
+            HARBOR_USERNAME=$(echo "$HARBOR_AUTH" | base64 -d | cut -d: -f1)
+            HARBOR_PASSWORD=$(echo "$HARBOR_AUTH" | base64 -d | cut -d: -f2)
 
-            # Deploy on server
             ssh -o StrictHostKeyChecking=no ubuntu@31.97.102.48 "
-              sudo mv /tmp/buildme-new /usr/local/bin/buildme
-              sudo chmod +x /usr/local/bin/buildme
-              sudo systemctl restart buildme
-              sleep 2
+              # Login to Harbor
+              echo '${HARBOR_PASSWORD}' | docker login harbor.biswas.me -u '${HARBOR_USERNAME}' --password-stdin
+
+              # Pull new image
+              cd /opt/buildme
+              export IMAGE_DIGEST=${IMAGE_DIGEST}
+              docker compose -f docker-compose.production.yml pull
+
+              # Restart
+              docker compose -f docker-compose.production.yml up -d --no-build
+
+              # Health check
+              sleep 3
               curl -sf http://127.0.0.1:13425/health && echo ' Deploy OK' || echo ' Deploy FAILED'
             "
 

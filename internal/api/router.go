@@ -67,6 +67,10 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 		r.Post("/api/me/password", authH.ChangePassword)
 		r.Get("/api/ws", wsH.Upgrade)
 
+		// Invites
+		r.Post("/api/invites", authH.CreateInvite)
+		r.Get("/api/invites", authH.ListInvites)
+
 		// Projects (user-level)
 		r.Get("/api/projects", projectH.List)
 		r.Post("/api/projects", projectH.Create)

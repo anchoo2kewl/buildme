@@ -1,0 +1,13 @@
+services:
+  buildme:
+    image: harbor.biswas.me/biswas/buildme@${IMAGE_DIGEST}
+    ports:
+      - "13425:8080"
+    volumes:
+      - buildme-data:/data
+    env_file:
+      - .env
+    restart: unless-stopped
+
+volumes:
+  buildme-data:
