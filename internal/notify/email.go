@@ -1,11 +1,15 @@
 package notify
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"net/smtp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/anchoo2kewl/buildme/internal/config"
 	"github.com/anchoo2kewl/buildme/internal/models"
@@ -15,14 +19,15 @@ type emailConfig struct {
 	To []string `json:"to"`
 }
 
-// SMTPConfig holds SMTP connection details, can come from DB or env vars.
+// SMTPConfig holds email sending config. Supports Brevo REST API (preferred) or SMTP relay.
 type SMTPConfig struct {
-	Host      string
+	Host      string // SMTP host or "brevo" for Brevo REST API
 	Port      int
 	User      string
-	Pass      string
+	Pass      string // SMTP password or Brevo API key
 	FromEmail string
 	FromName  string
+	APIKey    string // Brevo API key (if set, uses REST API instead of SMTP)
 }
 
 // SMTPFromSettings builds an SMTPConfig from DB settings map.
@@ -38,6 +43,7 @@ func SMTPFromSettings(settings map[string]string) *SMTPConfig {
 		Pass:      settings["smtp.pass"],
 		FromEmail: settings["smtp.from_email"],
 		FromName:  settings["smtp.from_name"],
+		APIKey:    settings["smtp.api_key"],
 	}
 }
 
@@ -54,7 +60,11 @@ func SMTPFromConfig(cfg *config.Config) *SMTPConfig {
 }
 
 func (s *SMTPConfig) IsConfigured() bool {
-	return s.Host != ""
+	return s.APIKey != "" || s.Host != ""
+}
+
+func (s *SMTPConfig) useBrevoAPI() bool {
+	return s.APIKey != ""
 }
 
 func (s *SMTPConfig) From() string {
@@ -65,9 +75,9 @@ func (s *SMTPConfig) From() string {
 }
 
 func sendEmail(cfg *config.Config, configJSON string, build *models.Build, eventType string) error {
-	smtp := SMTPFromConfig(cfg)
-	if !smtp.IsConfigured() {
-		return fmt.Errorf("SMTP not configured")
+	smtpCfg := SMTPFromConfig(cfg)
+	if !smtpCfg.IsConfigured() {
+		return fmt.Errorf("email not configured")
 	}
 
 	var ec emailConfig
@@ -78,13 +88,13 @@ func sendEmail(cfg *config.Config, configJSON string, build *models.Build, event
 	subject := fmt.Sprintf("[BuildMe] %s — %s on %s", eventType, build.CommitMessage, build.Branch)
 	body := buildAlertEmailHTML(build, eventType)
 
-	return smtpSend(smtp, ec.To, subject, body)
+	return emailSend(smtpCfg, ec.To, subject, body)
 }
 
-// SendEmailWithSettings sends using DB-backed SMTP settings.
-func SendEmailWithSettings(smtp *SMTPConfig, configJSON string, build *models.Build, eventType string) error {
-	if !smtp.IsConfigured() {
-		return fmt.Errorf("SMTP not configured")
+// SendEmailWithSettings sends using DB-backed settings.
+func SendEmailWithSettings(cfg *SMTPConfig, configJSON string, build *models.Build, eventType string) error {
+	if !cfg.IsConfigured() {
+		return fmt.Errorf("email not configured")
 	}
 
 	var ec emailConfig
@@ -95,13 +105,13 @@ func SendEmailWithSettings(smtp *SMTPConfig, configJSON string, build *models.Bu
 	subject := fmt.Sprintf("[BuildMe] %s — %s on %s", eventType, build.CommitMessage, build.Branch)
 	body := buildAlertEmailHTML(build, eventType)
 
-	return smtpSend(smtp, ec.To, subject, body)
+	return emailSend(cfg, ec.To, subject, body)
 }
 
 // SendInviteEmail sends an invite code email.
-func SendInviteEmail(smtp *SMTPConfig, toEmail, inviteCode, baseURL string) error {
-	if !smtp.IsConfigured() {
-		return fmt.Errorf("SMTP not configured")
+func SendInviteEmail(cfg *SMTPConfig, toEmail, inviteCode, baseURL string) error {
+	if !cfg.IsConfigured() {
+		return fmt.Errorf("email not configured")
 	}
 
 	registerURL := baseURL + "/register?code=" + inviteCode
@@ -117,13 +127,13 @@ func SendInviteEmail(smtp *SMTPConfig, toEmail, inviteCode, baseURL string) erro
 <p style="color:#8888a8;font-size:14px;margin-top:24px">This invite expires in 7 days.</p>
 </div></body></html>`, inviteCode, registerURL)
 
-	return smtpSend(smtp, []string{toEmail}, subject, body)
+	return emailSend(cfg, []string{toEmail}, subject, body)
 }
 
 // SendMemberInviteEmail notifies a user they've been added to a project.
-func SendMemberInviteEmail(smtp *SMTPConfig, toEmail, projectName, role, baseURL string) error {
-	if !smtp.IsConfigured() {
-		return nil // silently skip if SMTP not configured
+func SendMemberInviteEmail(cfg *SMTPConfig, toEmail, projectName, role, baseURL string) error {
+	if !cfg.IsConfigured() {
+		return nil
 	}
 
 	subject := fmt.Sprintf("You've been added to %s on BuildMe", projectName)
@@ -135,7 +145,7 @@ func SendMemberInviteEmail(smtp *SMTPConfig, toEmail, projectName, role, baseURL
 <p><a href="%s/dashboard" style="display:inline-block;background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Open Dashboard</a></p>
 </div></body></html>`, projectName, role, baseURL)
 
-	return smtpSend(smtp, []string{toEmail}, subject, body)
+	return emailSend(cfg, []string{toEmail}, subject, body)
 }
 
 func buildAlertEmailHTML(build *models.Build, eventType string) string {
@@ -177,6 +187,73 @@ func buildAlertEmailHTML(build *models.Build, eventType string) string {
 			}
 			return ""
 		}())
+}
+
+// emailSend dispatches via Brevo REST API or SMTP depending on config.
+func emailSend(cfg *SMTPConfig, to []string, subject, htmlBody string) error {
+	if cfg.useBrevoAPI() {
+		return brevoSend(cfg, to, subject, htmlBody)
+	}
+	return smtpSend(cfg, to, subject, htmlBody)
+}
+
+// brevoSend sends email via Brevo REST API.
+func brevoSend(cfg *SMTPConfig, to []string, subject, htmlBody string) error {
+	type sender struct {
+		Name  string `json:"name"`
+		Email string `json:"email"`
+	}
+	type recipient struct {
+		Email string `json:"email"`
+	}
+	type payload struct {
+		Sender      sender      `json:"sender"`
+		To          []recipient `json:"to"`
+		Subject     string      `json:"subject"`
+		HTMLContent string      `json:"htmlContent"`
+	}
+
+	recipients := make([]recipient, len(to))
+	for i, addr := range to {
+		recipients[i] = recipient{Email: addr}
+	}
+
+	p := payload{
+		Sender:      sender{Name: cfg.FromName, Email: cfg.FromEmail},
+		To:          recipients,
+		Subject:     subject,
+		HTMLContent: htmlBody,
+	}
+
+	body, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Errorf("marshal brevo payload: %w", err)
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, _ := http.NewRequest("POST", "https://api.brevo.com/v3/smtp/email", bytes.NewReader(body))
+	req.Header.Set("api-key", cfg.APIKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("brevo api: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		io.Copy(io.Discard, resp.Body)
+		return nil
+	}
+
+	respBody, _ := io.ReadAll(resp.Body)
+	return fmt.Errorf("brevo API HTTP %d: %s", resp.StatusCode, string(respBody))
+}
+
+// SendTestEmail is exported for use by admin handler.
+func SendTestEmail(cfg *SMTPConfig, to, subject, htmlBody string) error {
+	return emailSend(cfg, []string{to}, subject, htmlBody)
 }
 
 func smtpSend(cfg *SMTPConfig, to []string, subject, htmlBody string) error {

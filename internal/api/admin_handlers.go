@@ -2,12 +2,9 @@ package api
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
-	"net/smtp"
-	"strconv"
-	"strings"
 
+	"github.com/anchoo2kewl/buildme/internal/notify"
 	"github.com/anchoo2kewl/buildme/internal/store"
 )
 
@@ -28,9 +25,12 @@ func (h *AdminHandler) GetEmailSettings(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Never expose password in full
+	// Never expose secrets in full
 	if p, ok := settings["smtp.pass"]; ok && len(p) > 4 {
 		settings["smtp.pass"] = p[:4] + "****"
+	}
+	if k, ok := settings["smtp.api_key"]; ok && len(k) > 8 {
+		settings["smtp.api_key"] = k[:8] + "****"
 	}
 
 	jsonResp(w, http.StatusOK, settings)
@@ -56,14 +56,15 @@ func (h *AdminHandler) UpdateEmailSettings(w http.ResponseWriter, r *http.Reques
 		"smtp.pass":       true,
 		"smtp.from_email": true,
 		"smtp.from_name":  true,
+		"smtp.api_key":    true,
 	}
 
 	for key, value := range req {
 		if !allowedKeys[key] {
 			continue
 		}
-		// Skip password if it's the masked version
-		if key == "smtp.pass" && len(value) > 4 && value[4:] == "****" {
+		// Skip masked secrets
+		if (key == "smtp.pass" || key == "smtp.api_key") && len(value) > 4 && value[len(value)-4:] == "****" {
 			continue
 		}
 		if err := h.store.SetSetting(r.Context(), key, value); err != nil {
@@ -96,37 +97,12 @@ func (h *AdminHandler) TestEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if settings["smtp.host"] == "" {
-		jsonError(w, "SMTP not configured", http.StatusBadRequest)
+	cfg := notify.SMTPFromSettings(settings)
+	if !cfg.IsConfigured() {
+		jsonError(w, "email not configured — set either Brevo API key or SMTP host", http.StatusBadRequest)
 		return
 	}
 
-	if err := sendTestEmail(settings, req.To); err != nil {
-		jsonError(w, "send failed: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	jsonResp(w, http.StatusOK, map[string]string{"message": "test email sent"})
-}
-
-func sendTestEmail(settings map[string]string, to string) error {
-	host := settings["smtp.host"]
-	if host == "" {
-		return fmt.Errorf("SMTP host not configured")
-	}
-	port := 587
-	if p, err := strconv.Atoi(settings["smtp.port"]); err == nil && p > 0 {
-		port = p
-	}
-	user := settings["smtp.user"]
-	pass := settings["smtp.pass"]
-	fromEmail := settings["smtp.from_email"]
-	fromName := settings["smtp.from_name"]
-	if fromName == "" {
-		fromName = "BuildMe"
-	}
-
-	from := fmt.Sprintf("%s <%s>", fromName, fromEmail)
 	subject := "BuildMe Test Email"
 	body := `<!DOCTYPE html>
 <html><body style="font-family:-apple-system,sans-serif;background:#0f0f1a;color:#e2e2f0;padding:40px">
@@ -135,10 +111,10 @@ func sendTestEmail(settings map[string]string, to string) error {
 <p>This is a test email from BuildMe. Your email configuration is working correctly.</p>
 </div></body></html>`
 
-	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\n\r\n%s",
-		from, to, subject, body)
+	if err := notify.SendTestEmail(cfg, req.To, subject, body); err != nil {
+		jsonError(w, "send failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-	addr := fmt.Sprintf("%s:%d", host, port)
-	auth := smtp.PlainAuth("", user, pass, host)
-	return smtp.SendMail(addr, auth, fromEmail, strings.Split(to, ","), []byte(msg))
+	jsonResp(w, http.StatusOK, map[string]string{"message": "test email sent"})
 }

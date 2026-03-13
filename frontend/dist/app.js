@@ -820,25 +820,14 @@
         <h1 class="text-2xl font-bold mt-6 mb-4">Admin Settings</h1>
 
         <div class="card mb-4">
-          <h2 class="text-lg font-bold mb-2">Email / SMTP (Brevo)</h2>
-          <p class="text-sm text-muted mb-4">Configure SMTP settings for sending invite emails and build failure alerts. Works with Brevo, SendGrid, Mailgun, or any SMTP provider.</p>
+          <h2 class="text-lg font-bold mb-2">Email (Brevo / SMTP)</h2>
+          <p class="text-sm text-muted mb-4">Configure Brevo API key for sending invite emails and build failure alerts. Alternatively, use any SMTP provider.</p>
           <div id="email-settings-loading"><span class="spinner"></span> Loading...</div>
           <form id="email-settings-form" style="display:none">
+            <div class="alert alert-info">Recommended: Use Brevo API key. Leave SMTP fields empty if using Brevo API.</div>
             <div class="form-group">
-              <label>SMTP Host</label>
-              <input type="text" class="form-input" name="smtp.host" placeholder="smtp-relay.brevo.com">
-            </div>
-            <div class="form-group">
-              <label>SMTP Port</label>
-              <input type="number" class="form-input" name="smtp.port" placeholder="587" value="587">
-            </div>
-            <div class="form-group">
-              <label>SMTP User</label>
-              <input type="text" class="form-input" name="smtp.user" placeholder="your-brevo-login@email.com">
-            </div>
-            <div class="form-group">
-              <label>SMTP Password / API Key</label>
-              <input type="password" class="form-input" name="smtp.pass" placeholder="xsmtpsib-...">
+              <label>Brevo API Key</label>
+              <input type="password" class="form-input" name="smtp.api_key" placeholder="xkeysib-...">
             </div>
             <div class="form-group">
               <label>From Email</label>
@@ -848,6 +837,27 @@
               <label>From Name</label>
               <input type="text" class="form-input" name="smtp.from_name" placeholder="BuildMe" value="BuildMe">
             </div>
+            <details class="mt-4" style="cursor:pointer">
+              <summary class="text-sm text-muted font-medium">SMTP Settings (alternative to Brevo API)</summary>
+              <div class="mt-2">
+                <div class="form-group">
+                  <label>SMTP Host</label>
+                  <input type="text" class="form-input" name="smtp.host" placeholder="smtp-relay.brevo.com">
+                </div>
+                <div class="form-group">
+                  <label>SMTP Port</label>
+                  <input type="number" class="form-input" name="smtp.port" placeholder="587" value="587">
+                </div>
+                <div class="form-group">
+                  <label>SMTP User</label>
+                  <input type="text" class="form-input" name="smtp.user" placeholder="user@example.com">
+                </div>
+                <div class="form-group">
+                  <label>SMTP Password</label>
+                  <input type="password" class="form-input" name="smtp.pass" placeholder="password">
+                </div>
+              </div>
+            </details>
             <div class="flex gap-2 mt-4">
               <button type="submit" class="btn btn-primary btn-sm">Save Settings</button>
               <button type="button" class="btn btn-outline btn-sm" id="test-email-btn">Send Test Email</button>
