@@ -230,7 +230,7 @@ export default component$(() => {
 {`{
   "mcpServers": {
     "buildme": {
-      "url": "https://build.biswas.me/mcp",
+      "url": "https://mcp.build.biswas.me/mcp",
       "headers": {
         "X-API-Key": "bm_..."
       }
