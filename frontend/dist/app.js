@@ -316,7 +316,24 @@
       renderDashboardTable(savedEnv);
       // Load drift data asynchronously (health + deployed version)
       api('/drift').then(data => {
-        window.__driftData = data;
+        // Flatten nested {projects:[{environments:[...]}]} into flat array
+        const flat = [];
+        if (data && data.projects) {
+          for (const dp of data.projects) {
+            for (const es of (dp.environments || [])) {
+              flat.push({
+                project_id: es.project_id,
+                env: es.env,
+                health: es.health_status,
+                deployed_sha: es.deployed_sha,
+                is_drifted: es.is_drifted,
+                response_time_ms: es.response_time_ms,
+                version_info: es.version_info,
+              });
+            }
+          }
+        }
+        window.__driftData = flat;
         const env = localStorage.getItem('buildme_env') || 'production';
         renderDashboardTable(env);
       }).catch(() => {});

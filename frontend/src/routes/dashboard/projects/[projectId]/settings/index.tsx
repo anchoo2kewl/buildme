@@ -1,7 +1,7 @@
 import { component$, useSignal, useVisibleTask$ } from "@builder.io/qwik";
 import { useLocation } from "@builder.io/qwik-city";
-import { get, post, del } from "~/lib/api";
-import type { CIProvider } from "~/lib/types";
+import { get, post, put, del } from "~/lib/api";
+import type { CIProvider, Project } from "~/lib/types";
 import { ProviderForm } from "~/components/projects/provider-form";
 
 export default component$(() => {
@@ -11,9 +11,32 @@ export default component$(() => {
   const showForm = useSignal(false);
   const loading = useSignal(true);
 
+  const project = useSignal<Project | null>(null);
+  const envSaving = useSignal(false);
+  const envSuccess = useSignal(false);
+  const envError = useSignal("");
+
+  const stagingUrl = useSignal("");
+  const uatUrl = useSignal("");
+  const productionUrl = useSignal("");
+  const versionPath = useSignal("/api/version");
+  const versionField = useSignal("git_commit");
+  const healthPath = useSignal("/health");
+
   useVisibleTask$(async () => {
     try {
-      providers.value = await get<CIProvider[]>(`/projects/${projectId}/providers`);
+      const [p, provs] = await Promise.all([
+        get<Project>(`/projects/${projectId}`),
+        get<CIProvider[]>(`/projects/${projectId}/providers`),
+      ]);
+      project.value = p;
+      providers.value = provs;
+      stagingUrl.value = p.staging_url || "";
+      uatUrl.value = p.uat_url || "";
+      productionUrl.value = p.production_url || "";
+      versionPath.value = p.version_path || "/api/version";
+      versionField.value = p.version_field || "git_commit";
+      healthPath.value = p.health_path || "/health";
     } catch {
       // ignore
     }
@@ -25,6 +48,137 @@ export default component$(() => {
       <h1 class="mb-6 text-2xl font-bold text-text">Project Settings</h1>
 
       <div class="space-y-6">
+        {/* Environment URLs */}
+        <section>
+          <h2 class="mb-4 text-lg font-semibold text-text">
+            Environment URLs
+          </h2>
+          <p class="mb-4 text-sm text-muted">
+            Configure deployed URLs for health monitoring and drift detection.
+          </p>
+
+          {envError.value && (
+            <div class="mb-4 rounded-lg bg-failure/20 px-4 py-2 text-sm text-failure">
+              {envError.value}
+            </div>
+          )}
+          {envSuccess.value && (
+            <div class="mb-4 rounded-lg bg-success/20 px-4 py-2 text-sm text-success">
+              Environment settings saved.
+            </div>
+          )}
+
+          <form
+            preventdefault:submit
+            onSubmit$={async () => {
+              envSaving.value = true;
+              envError.value = "";
+              envSuccess.value = false;
+              try {
+                const updated = await put<Project>(`/projects/${projectId}`, {
+                  staging_url: stagingUrl.value,
+                  uat_url: uatUrl.value,
+                  production_url: productionUrl.value,
+                  version_path: versionPath.value,
+                  version_field: versionField.value,
+                  health_path: healthPath.value,
+                });
+                project.value = updated;
+                envSuccess.value = true;
+                setTimeout(() => (envSuccess.value = false), 3000);
+              } catch (e: any) {
+                envError.value = e.message;
+              } finally {
+                envSaving.value = false;
+              }
+            }}
+            class="space-y-4 rounded-lg border border-border bg-elevated p-4"
+          >
+            <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div>
+                <label class="block text-xs font-medium text-muted">
+                  Staging URL
+                </label>
+                <input
+                  type="url"
+                  bind:value={stagingUrl}
+                  placeholder="https://staging.example.com"
+                  class="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted focus:border-accent focus:outline-none"
+                />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-muted">
+                  UAT URL
+                </label>
+                <input
+                  type="url"
+                  bind:value={uatUrl}
+                  placeholder="https://uat.example.com"
+                  class="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted focus:border-accent focus:outline-none"
+                />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-muted">
+                  Production URL
+                </label>
+                <input
+                  type="url"
+                  bind:value={productionUrl}
+                  placeholder="https://example.com"
+                  class="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted focus:border-accent focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div>
+                <label class="block text-xs font-medium text-muted">
+                  Version Path
+                </label>
+                <input
+                  type="text"
+                  bind:value={versionPath}
+                  placeholder="/api/version"
+                  class="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted focus:border-accent focus:outline-none"
+                />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-muted">
+                  Version JSON Field
+                </label>
+                <input
+                  type="text"
+                  bind:value={versionField}
+                  placeholder="git_commit"
+                  class="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted focus:border-accent focus:outline-none"
+                />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-muted">
+                  Health Path
+                </label>
+                <input
+                  type="text"
+                  bind:value={healthPath}
+                  placeholder="/health"
+                  class="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted focus:border-accent focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div class="flex justify-end">
+              <button
+                type="submit"
+                disabled={envSaving.value}
+                class="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+              >
+                {envSaving.value ? "Saving..." : "Save Environment Settings"}
+              </button>
+            </div>
+          </form>
+        </section>
+
+        {/* CI Providers */}
         <section>
           <div class="mb-4 flex items-center justify-between">
             <h2 class="text-lg font-semibold text-text">CI Providers</h2>

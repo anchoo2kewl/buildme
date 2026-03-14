@@ -1,0 +1,1 @@
+import{v as c}from"./q-CcP5yyxH.js";import{x as g}from"./q-CcP5yyxH.js";import{g as i,f}from"./q-ByFthafX.js";const p=async()=>{const[a,e,t,o,r]=c();try{const[s,l]=await Promise.all([i("/projects"),f()]);r.value=s,a.value=l,t.value=new Date().toLocaleTimeString()}catch{}o.value=!1,e.value=!1};export{g as _hW,p as s_HSgkTnx53rY};

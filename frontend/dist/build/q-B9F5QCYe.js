@@ -1,1 +1,0 @@
-import{v as a}from"./q-CcP5yyxH.js";import{x as m}from"./q-CcP5yyxH.js";import{g as e}from"./q-Bl83swG4.js";const p=async()=>{const[r,o,t]=a();try{t.value=await e(`/projects/${o}/providers`)}catch{}r.value=!1};export{m as _hW,p as s_Ih5qcprOHck};

@@ -7,8 +7,12 @@ export default component$(() => {
   const nav = useNavigate();
   const name = useSignal("");
   const description = useSignal("");
+  const stagingUrl = useSignal("");
+  const uatUrl = useSignal("");
+  const productionUrl = useSignal("");
   const error = useSignal("");
   const loading = useSignal(false);
+  const showEnv = useSignal(false);
 
   return (
     <div class="mx-auto max-w-lg">
@@ -29,6 +33,9 @@ export default component$(() => {
             const project = await post<Project>("/projects", {
               name: name.value,
               description: description.value,
+              staging_url: stagingUrl.value,
+              uat_url: uatUrl.value,
+              production_url: productionUrl.value,
             });
             nav(`/dashboard/projects/${project.id}`);
           } catch (e: any) {
@@ -62,6 +69,57 @@ export default component$(() => {
             placeholder="Brief project description"
           />
         </div>
+
+        <button
+          type="button"
+          onClick$={() => (showEnv.value = !showEnv.value)}
+          class="text-sm text-accent hover:underline"
+        >
+          {showEnv.value ? "Hide environment URLs" : "Add environment URLs (optional)"}
+        </button>
+
+        {showEnv.value && (
+          <div class="space-y-3 rounded-lg border border-border bg-elevated p-4">
+            <p class="text-xs text-muted">
+              Set deployed URLs to enable health monitoring and drift detection.
+              You can also configure these later in project settings.
+            </p>
+            <div>
+              <label class="block text-xs font-medium text-muted">
+                Staging URL
+              </label>
+              <input
+                type="url"
+                bind:value={stagingUrl}
+                placeholder="https://staging.example.com"
+                class="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted focus:border-accent focus:outline-none"
+              />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-muted">
+                UAT URL
+              </label>
+              <input
+                type="url"
+                bind:value={uatUrl}
+                placeholder="https://uat.example.com"
+                class="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted focus:border-accent focus:outline-none"
+              />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-muted">
+                Production URL
+              </label>
+              <input
+                type="url"
+                bind:value={productionUrl}
+                placeholder="https://example.com"
+                class="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted focus:border-accent focus:outline-none"
+              />
+            </div>
+          </div>
+        )}
+
         <button
           type="submit"
           disabled={loading.value}

@@ -41,8 +41,11 @@ func (h *ProjectHandler) List(w http.ResponseWriter, r *http.Request) {
 
 func (h *ProjectHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		Name          string `json:"name"`
+		Description   string `json:"description"`
+		StagingURL    string `json:"staging_url"`
+		UATURL        string `json:"uat_url"`
+		ProductionURL string `json:"production_url"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "invalid request body", http.StatusBadRequest)
@@ -72,9 +75,12 @@ func (h *ProjectHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	project := &models.Project{
-		Name:        req.Name,
-		Slug:        slug,
-		Description: req.Description,
+		Name:          req.Name,
+		Slug:          slug,
+		Description:   req.Description,
+		StagingURL:    req.StagingURL,
+		UATURL:        req.UATURL,
+		ProductionURL: req.ProductionURL,
 	}
 	if err := h.store.CreateProject(r.Context(), project); err != nil {
 		jsonError(w, "failed to create project", http.StatusInternalServerError)

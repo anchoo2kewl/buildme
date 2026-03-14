@@ -62,9 +62,28 @@ export interface DashboardEntry {
 
 export interface DriftEntry {
   project_id: number;
+  project_name: string;
   env: string;
   deployed_sha: string;
   health: number;
+  response_time_ms: number;
+  is_drifted: boolean;
+}
+
+interface DriftDashboard {
+  projects: Array<{
+    project: Project;
+    environments: Array<{
+      project_id: number;
+      project_name: string;
+      env: string;
+      deployed_sha: string;
+      health_status: number;
+      response_time_ms: number;
+      is_drifted: boolean;
+      [key: string]: unknown;
+    }>;
+  }>;
 }
 
 export interface User {
@@ -119,7 +138,24 @@ export class BuildMeClient {
   }
 
   async getDrift(): Promise<DriftEntry[]> {
-    return this.request<DriftEntry[]>("/api/drift");
+    const data = await this.request<DriftDashboard>("/api/drift");
+    const flat: DriftEntry[] = [];
+    if (data && data.projects) {
+      for (const dp of data.projects) {
+        for (const es of dp.environments || []) {
+          flat.push({
+            project_id: es.project_id,
+            project_name: es.project_name,
+            env: es.env,
+            deployed_sha: es.deployed_sha,
+            health: es.health_status,
+            response_time_ms: es.response_time_ms,
+            is_drifted: es.is_drifted,
+          });
+        }
+      }
+    }
+    return flat;
   }
 
   async syncAll(): Promise<unknown> {
