@@ -1,0 +1,1 @@
+import{v as d}from"./q-CDA5li_u.js";import{x as b}from"./q-CDA5li_u.js";import{g as l}from"./q-DDn01gZB.js";import{g as p}from"./q-BIe1fk_t.js";const g=async()=>{const[r,s,o,e]=d(),a=p(),t=a.projectId||o.params.projectId,c=a.buildId||o.params.buildId;e.value=t;try{r.value=await l(`/projects/${t}/builds/${c}`)}catch{}s.value=!1};export{b as _hW,g as s_bUZOxLVgN1g};

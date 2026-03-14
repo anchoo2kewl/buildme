@@ -5,21 +5,23 @@ export const onStaticGenerate: StaticGenerateHandler = async () => {
   return { params: [{ projectId: "_" }] };
 };
 import { get, post, del } from "~/lib/api";
+import { getRouteParams } from "~/lib/route-params";
 import type { ProjectMember } from "~/lib/types";
 import { Avatar } from "~/components/shared/avatar";
 
 export default component$(() => {
   const loc = useLocation();
-  const projectId = loc.params.projectId;
+  const projectId = useSignal(loc.params.projectId);
   const members = useSignal<ProjectMember[]>([]);
   const inviteEmail = useSignal("");
   const inviteRole = useSignal("viewer");
   const loading = useSignal(true);
 
   useVisibleTask$(async () => {
+    projectId.value = getRouteParams().projectId || projectId.value;
     try {
       members.value = await get<ProjectMember[]>(
-        `/projects/${projectId}/members`,
+        `/projects/${projectId.value}/members`,
       );
     } catch {
       // ignore
@@ -38,7 +40,7 @@ export default component$(() => {
           onSubmit$={async () => {
             try {
               const m = await post<ProjectMember>(
-                `/projects/${projectId}/members`,
+                `/projects/${projectId.value}/members`,
                 { email: inviteEmail.value, role: inviteRole.value },
               );
               members.value = [...members.value, m];
@@ -106,7 +108,7 @@ export default component$(() => {
                     onClick$={async () => {
                       try {
                         await del(
-                          `/projects/${projectId}/members/${m.user_id}`,
+                          `/projects/${projectId.value}/members/${m.user_id}`,
                         );
                         members.value = members.value.filter(
                           (mm) => mm.user_id !== m.user_id,

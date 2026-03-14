@@ -5,6 +5,7 @@ export const onStaticGenerate: StaticGenerateHandler = async () => {
   return { params: [{ projectId: "_", buildId: "_" }] };
 };
 import { get } from "~/lib/api";
+import { getRouteParams } from "~/lib/route-params";
 import type { Build } from "~/lib/types";
 import { StatusBadge } from "~/components/builds/status-badge";
 import { BuildTimeline } from "~/components/builds/build-timeline";
@@ -12,11 +13,15 @@ import { CIProviderIcon, providerDisplayName } from "~/components/shared/ci-prov
 
 export default component$(() => {
   const loc = useLocation();
-  const { projectId, buildId } = loc.params;
+  const resolvedProjectId = useSignal(loc.params.projectId);
   const build = useSignal<Build | null>(null);
   const loading = useSignal(true);
 
   useVisibleTask$(async () => {
+    const params = getRouteParams();
+    const projectId = params.projectId || loc.params.projectId;
+    const buildId = params.buildId || loc.params.buildId;
+    resolvedProjectId.value = projectId;
     try {
       build.value = await get<Build>(`/projects/${projectId}/builds/${buildId}`);
     } catch {
@@ -35,7 +40,7 @@ export default component$(() => {
         <>
           <div class="mb-6">
             <a
-              href={`/dashboard/projects/${projectId}`}
+              href={`/dashboard/projects/${resolvedProjectId.value}`}
               class="text-sm text-accent hover:underline"
             >
               Back to builds

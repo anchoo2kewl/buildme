@@ -10,20 +10,23 @@ export const onStaticGenerate: StaticGenerateHandler = async () => {
   return { params: [{ projectId: "_" }] };
 };
 import { get } from "~/lib/api";
+import { getRouteParams } from "~/lib/route-params";
 import type { Build, Project } from "~/lib/types";
 import { BuildCard } from "~/components/builds/build-card";
 import { WSContext } from "~/context/ws-context";
 
 export default component$(() => {
   const loc = useLocation();
-  const projectId = loc.params.projectId;
   const wsState = useContext(WSContext);
 
   const project = useSignal<Project | null>(null);
   const builds = useSignal<Build[]>([]);
   const loading = useSignal(true);
+  const resolvedId = useSignal(loc.params.projectId);
 
   useVisibleTask$(async () => {
+    const projectId = getRouteParams().projectId || loc.params.projectId;
+    resolvedId.value = projectId;
     try {
       const [p, res] = await Promise.all([
         get<Project>(`/projects/${projectId}`),
@@ -83,7 +86,7 @@ export default component$(() => {
               )}
             </div>
             <a
-              href={`/dashboard/projects/${projectId}/settings`}
+              href={`/dashboard/projects/${resolvedId.value}/settings`}
               class="rounded-lg border border-border px-4 py-2 text-sm text-muted transition-colors hover:border-accent hover:text-text"
             >
               Settings
@@ -97,7 +100,7 @@ export default component$(() => {
                 Add a CI provider in settings to start monitoring builds.
               </p>
               <a
-                href={`/dashboard/projects/${projectId}/settings`}
+                href={`/dashboard/projects/${resolvedId.value}/settings`}
                 class="mt-4 inline-block rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white"
               >
                 Add Provider

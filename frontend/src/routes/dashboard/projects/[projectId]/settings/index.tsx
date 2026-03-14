@@ -5,6 +5,7 @@ export const onStaticGenerate: StaticGenerateHandler = async () => {
   return { params: [{ projectId: "_" }] };
 };
 import { get, post, put, del } from "~/lib/api";
+import { getRouteParams } from "~/lib/route-params";
 import type { CIProvider, Project, ProjectMetadata } from "~/lib/types";
 import { parseMetadata } from "~/lib/types";
 import { ProviderForm } from "~/components/projects/provider-form";
@@ -12,7 +13,7 @@ import { CIProviderIcon, providerDisplayName } from "~/components/shared/ci-prov
 
 export default component$(() => {
   const loc = useLocation();
-  const projectId = loc.params.projectId;
+  const projectId = useSignal(loc.params.projectId);
   const providers = useSignal<CIProvider[]>([]);
   const showForm = useSignal(false);
   const loading = useSignal(true);
@@ -41,10 +42,11 @@ export default component$(() => {
   const mcpUrl = useSignal("");
 
   useVisibleTask$(async () => {
+    projectId.value = getRouteParams().projectId || projectId.value;
     try {
       const [p, provs] = await Promise.all([
-        get<Project>(`/projects/${projectId}`),
-        get<CIProvider[]>(`/projects/${projectId}/providers`),
+        get<Project>(`/projects/${projectId.value}`),
+        get<CIProvider[]>(`/projects/${projectId.value}/providers`),
       ]);
       project.value = p;
       providers.value = provs;
@@ -99,7 +101,7 @@ export default component$(() => {
               envError.value = "";
               envSuccess.value = false;
               try {
-                const updated = await put<Project>(`/projects/${projectId}`, {
+                const updated = await put<Project>(`/projects/${projectId.value}`, {
                   staging_url: stagingUrl.value,
                   uat_url: uatUrl.value,
                   production_url: productionUrl.value,
@@ -244,7 +246,7 @@ export default component$(() => {
                 if (Object.keys(ports).length > 0) meta.ports = ports;
                 if (mcpUrl.value) meta.mcp_url = mcpUrl.value;
 
-                const updated = await put<Project>(`/projects/${projectId}`, {
+                const updated = await put<Project>(`/projects/${projectId.value}`, {
                   metadata: JSON.stringify(meta),
                 });
                 project.value = updated;
@@ -369,7 +371,7 @@ export default component$(() => {
                 onSubmit$={async (data) => {
                   try {
                     const p = await post<CIProvider>(
-                      `/projects/${projectId}/providers`,
+                      `/projects/${projectId.value}/providers`,
                       data,
                     );
                     providers.value = [...providers.value, p];
@@ -409,7 +411,7 @@ export default component$(() => {
                     <button
                       onClick$={async () => {
                         try {
-                          await post(`/projects/${projectId}/providers/${p.id}/sync`, {});
+                          await post(`/projects/${projectId.value}/providers/${p.id}/sync`, {});
                         } catch {
                           // ignore
                         }
@@ -421,7 +423,7 @@ export default component$(() => {
                     <button
                       onClick$={async () => {
                         try {
-                          await del(`/projects/${projectId}/providers/${p.id}`);
+                          await del(`/projects/${projectId.value}/providers/${p.id}`);
                           providers.value = providers.value.filter(
                             (pr) => pr.id !== p.id,
                           );
@@ -444,7 +446,7 @@ export default component$(() => {
           <h2 class="mb-4 text-lg font-semibold text-text">Links</h2>
           <div class="space-y-2 text-sm">
             <a
-              href={`/dashboard/projects/${projectId}/members`}
+              href={`/dashboard/projects/${projectId.value}/members`}
               class="block text-accent hover:underline"
             >
               Manage Members

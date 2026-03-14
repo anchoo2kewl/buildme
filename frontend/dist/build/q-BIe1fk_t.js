@@ -1,0 +1,1 @@
+function o(){if(typeof window>"u")return{};const t=window.location.pathname.split("/").filter(Boolean),n={},e=t.indexOf("projects");e>=0&&e+1<t.length&&(n.projectId=t[e+1]);const i=t.indexOf("builds");return i>=0&&i+1<t.length&&(n.buildId=t[i+1]),n}export{o as g};
