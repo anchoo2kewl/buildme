@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
