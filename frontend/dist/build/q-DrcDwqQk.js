@@ -1,1 +1,0 @@
-import{v as o}from"./q-CDA5li_u.js";import{x as g}from"./q-CDA5li_u.js";import{g as r}from"./q-Oxr4VVlv.js";const m=async()=>{const[a,e,s]=o();try{s.value=await r("/admin/email-settings")}catch(t){a.value=t.message}finally{e.value=!1}};export{g as _hW,m as s_4fdSDu0Ph0s};

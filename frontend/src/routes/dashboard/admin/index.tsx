@@ -167,7 +167,7 @@ const EmailTab = component$(() => {
   const settings = useSignal<Record<string, string>>({});
   const loading = useSignal(true);
   const saving = useSignal(false);
-  const testing = useSignal(false);
+  const testingProvider = useSignal<string | null>(null);
   const error = useSignal("");
   const success = useSignal("");
   const testTo = useSignal("");
@@ -180,6 +180,10 @@ const EmailTab = component$(() => {
     } finally {
       loading.value = false;
     }
+  });
+
+  const updateSetting = $((key: string, value: string) => {
+    settings.value = { ...settings.value, [key]: value };
   });
 
   const save = $(async () => {
@@ -196,18 +200,18 @@ const EmailTab = component$(() => {
     }
   });
 
-  const testEmail = $(async () => {
+  const testEmail = $(async (provider: string) => {
     if (!testTo.value) return;
-    testing.value = true;
+    testingProvider.value = provider;
     error.value = "";
     success.value = "";
     try {
-      await post("/admin/test-email", { to: testTo.value });
-      success.value = "Test email sent to " + testTo.value;
+      await post("/admin/test-email", { to: testTo.value, provider });
+      success.value = `Test email sent via ${provider === "mailerlite" ? "MailerLite" : "Brevo"} to ${testTo.value}`;
     } catch (e: any) {
       error.value = e.message;
     } finally {
-      testing.value = false;
+      testingProvider.value = null;
     }
   });
 
@@ -219,48 +223,147 @@ const EmailTab = component$(() => {
     );
   }
 
-  const fields = [
-    { key: "smtp.host", label: "SMTP Host", placeholder: "smtp.brevo.com" },
-    { key: "smtp.port", label: "SMTP Port", placeholder: "587" },
-    { key: "smtp.user", label: "SMTP User", placeholder: "user@example.com" },
-    { key: "smtp.pass", label: "SMTP Password", placeholder: "password", type: "password" },
-    { key: "smtp.from_email", label: "From Email", placeholder: "noreply@build.biswas.me" },
-    { key: "smtp.from_name", label: "From Name", placeholder: "BuildMe" },
-    { key: "smtp.api_key", label: "Brevo API Key", placeholder: "xkeysib-...", type: "password" },
-  ];
+  const defaultProvider = settings.value["email.default_provider"] || "brevo";
+  const hasBrevo = !!(settings.value["smtp.api_key"] && !settings.value["smtp.api_key"].endsWith("****") ? settings.value["smtp.api_key"] : settings.value["smtp.api_key"]?.replace(/\*+$/, ""));
+  const hasMailerLite = !!(settings.value["email.mailerlite_api_key"] && !settings.value["email.mailerlite_api_key"].endsWith("****") ? settings.value["email.mailerlite_api_key"] : settings.value["email.mailerlite_api_key"]?.replace(/\*+$/, ""));
+  const hasBoth = hasBrevo && hasMailerLite;
 
   return (
-    <div class="rounded-lg border border-border bg-elevated p-6">
+    <div class="space-y-6">
       {error.value && (
-        <div class="mb-4 rounded bg-failure/20 px-3 py-2 text-sm text-failure">
+        <div class="rounded bg-failure/20 px-3 py-2 text-sm text-failure">
           {error.value}
         </div>
       )}
       {success.value && (
-        <div class="mb-4 rounded bg-success/20 px-3 py-2 text-sm text-success">
+        <div class="rounded bg-success/20 px-3 py-2 text-sm text-success">
           {success.value}
         </div>
       )}
 
-      <div class="space-y-4">
-        {fields.map((f) => (
-          <div key={f.key}>
-            <label class="mb-1 block text-sm font-medium text-muted">{f.label}</label>
+      {/* Sender Info */}
+      <div class="rounded-lg border border-border bg-elevated p-6">
+        <h3 class="mb-4 text-sm font-semibold text-text">Sender</h3>
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label class="mb-1 block text-xs font-medium text-muted">From Email</label>
             <input
-              type={f.type || "text"}
-              value={settings.value[f.key] || ""}
-              onInput$={(e: InputEvent) => {
-                const target = e.target as HTMLInputElement;
-                settings.value = { ...settings.value, [f.key]: target.value };
-              }}
-              placeholder={f.placeholder}
+              type="email"
+              value={settings.value["smtp.from_email"] || ""}
+              onInput$={(e: InputEvent) => updateSetting("smtp.from_email", (e.target as HTMLInputElement).value)}
+              placeholder="noreply@build.biswas.me"
               class="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted"
             />
           </div>
-        ))}
+          <div>
+            <label class="mb-1 block text-xs font-medium text-muted">From Name</label>
+            <input
+              type="text"
+              value={settings.value["smtp.from_name"] || ""}
+              onInput$={(e: InputEvent) => updateSetting("smtp.from_name", (e.target as HTMLInputElement).value)}
+              placeholder="BuildMe"
+              class="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted"
+            />
+          </div>
+        </div>
       </div>
 
-      <div class="mt-6 flex items-center gap-3">
+      {/* Provider Cards */}
+      <div class="grid gap-4 sm:grid-cols-2">
+        {/* Brevo */}
+        <div class={`rounded-lg border bg-elevated p-5 ${defaultProvider === "brevo" ? "border-accent" : "border-border"}`}>
+          <div class="mb-3 flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-text">Brevo</h3>
+            {defaultProvider === "brevo" && (
+              <span class="rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent">Default</span>
+            )}
+          </div>
+          <div>
+            <label class="mb-1 block text-xs font-medium text-muted">API Key</label>
+            <input
+              type="password"
+              value={settings.value["smtp.api_key"] || ""}
+              onInput$={(e: InputEvent) => updateSetting("smtp.api_key", (e.target as HTMLInputElement).value)}
+              placeholder="xkeysib-..."
+              class="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted"
+            />
+          </div>
+          {hasBrevo && (
+            <div class="mt-3 flex gap-2">
+              <button
+                onClick$={() => testEmail("brevo")}
+                disabled={testingProvider.value !== null || !testTo.value}
+                class="rounded px-3 py-1.5 text-xs font-medium text-accent border border-accent/30 hover:bg-accent/10 disabled:opacity-50"
+              >
+                {testingProvider.value === "brevo" ? "Sending..." : "Test"}
+              </button>
+              {hasBoth && defaultProvider !== "brevo" && (
+                <button
+                  onClick$={() => updateSetting("email.default_provider", "brevo")}
+                  class="rounded px-3 py-1.5 text-xs text-muted hover:text-text"
+                >
+                  Set Default
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* MailerLite (MailerSend) */}
+        <div class={`rounded-lg border bg-elevated p-5 ${defaultProvider === "mailerlite" ? "border-accent" : "border-border"}`}>
+          <div class="mb-3 flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-text">MailerLite</h3>
+            {defaultProvider === "mailerlite" && (
+              <span class="rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent">Default</span>
+            )}
+          </div>
+          <p class="mb-2 text-xs text-muted">Uses MailerSend API for transactional email</p>
+          <div>
+            <label class="mb-1 block text-xs font-medium text-muted">MailerSend API Key</label>
+            <input
+              type="password"
+              value={settings.value["email.mailerlite_api_key"] || ""}
+              onInput$={(e: InputEvent) => updateSetting("email.mailerlite_api_key", (e.target as HTMLInputElement).value)}
+              placeholder="mlsn...."
+              class="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted"
+            />
+          </div>
+          {hasMailerLite && (
+            <div class="mt-3 flex gap-2">
+              <button
+                onClick$={() => testEmail("mailerlite")}
+                disabled={testingProvider.value !== null || !testTo.value}
+                class="rounded px-3 py-1.5 text-xs font-medium text-accent border border-accent/30 hover:bg-accent/10 disabled:opacity-50"
+              >
+                {testingProvider.value === "mailerlite" ? "Sending..." : "Test"}
+              </button>
+              {hasBoth && defaultProvider !== "mailerlite" && (
+                <button
+                  onClick$={() => updateSetting("email.default_provider", "mailerlite")}
+                  class="rounded px-3 py-1.5 text-xs text-muted hover:text-text"
+                >
+                  Set Default
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Test email recipient + Save */}
+      <div class="rounded-lg border border-border bg-elevated p-6">
+        <div class="mb-4">
+          <label class="mb-1 block text-xs font-medium text-muted">Test Recipient</label>
+          <input
+            type="email"
+            bind:value={testTo}
+            placeholder="recipient@example.com"
+            class="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted"
+          />
+          {!testTo.value && (hasBrevo || hasMailerLite) && (
+            <p class="mt-1 text-xs text-muted">Enter an email to enable the Test buttons above</p>
+          )}
+        </div>
         <button
           onClick$={save}
           disabled={saving.value}
@@ -268,25 +371,6 @@ const EmailTab = component$(() => {
         >
           {saving.value ? "Saving..." : "Save Settings"}
         </button>
-      </div>
-
-      <div class="mt-6 border-t border-border pt-6">
-        <h3 class="mb-3 text-sm font-semibold text-text">Test Connection</h3>
-        <div class="flex gap-2">
-          <input
-            type="email"
-            bind:value={testTo}
-            placeholder="recipient@example.com"
-            class="flex-1 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted"
-          />
-          <button
-            onClick$={testEmail}
-            disabled={testing.value || !testTo.value}
-            class="rounded-lg border border-accent px-4 py-2 text-sm font-medium text-accent disabled:opacity-50"
-          >
-            {testing.value ? "Sending..." : "Send Test"}
-          </button>
-        </div>
       </div>
     </div>
   );

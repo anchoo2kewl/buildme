@@ -1,1 +1,0 @@
-import{v as e}from"./q-CDA5li_u.js";import{x as g}from"./q-CDA5li_u.js";import{s as r}from"./q-Oxr4VVlv.js";const c=()=>{const[t,o]=e(),s=t.url.searchParams.get("token");s?(r(s),o("/dashboard")):o("/auth/login")};export{g as _hW,c as s_SzsgvbcPHog};

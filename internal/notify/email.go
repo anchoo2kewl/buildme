@@ -21,13 +21,15 @@ type emailConfig struct {
 
 // SMTPConfig holds email sending config. Supports Brevo REST API (preferred) or SMTP relay.
 type SMTPConfig struct {
-	Host      string // SMTP host or "brevo" for Brevo REST API
-	Port      int
-	User      string
-	Pass      string // SMTP password or Brevo API key
-	FromEmail string
-	FromName  string
-	APIKey    string // Brevo API key (if set, uses REST API instead of SMTP)
+	Host            string // SMTP host or "brevo" for Brevo REST API
+	Port            int
+	User            string
+	Pass            string // SMTP password or Brevo API key
+	FromEmail       string
+	FromName        string
+	APIKey          string // Brevo API key (if set, uses REST API instead of SMTP)
+	MailerSendKey   string // MailerSend (MailerLite) API key
+	DefaultProvider string // "brevo" or "mailerlite"
 }
 
 // SMTPFromSettings builds an SMTPConfig from DB settings map.
@@ -36,14 +38,20 @@ func SMTPFromSettings(settings map[string]string) *SMTPConfig {
 	if p, err := strconv.Atoi(settings["smtp.port"]); err == nil && p > 0 {
 		port = p
 	}
+	provider := settings["email.default_provider"]
+	if provider == "" {
+		provider = "brevo"
+	}
 	return &SMTPConfig{
-		Host:      settings["smtp.host"],
-		Port:      port,
-		User:      settings["smtp.user"],
-		Pass:      settings["smtp.pass"],
-		FromEmail: settings["smtp.from_email"],
-		FromName:  settings["smtp.from_name"],
-		APIKey:    settings["smtp.api_key"],
+		Host:            settings["smtp.host"],
+		Port:            port,
+		User:            settings["smtp.user"],
+		Pass:            settings["smtp.pass"],
+		FromEmail:       settings["smtp.from_email"],
+		FromName:        settings["smtp.from_name"],
+		APIKey:          settings["smtp.api_key"],
+		MailerSendKey:   settings["email.mailerlite_api_key"],
+		DefaultProvider: provider,
 	}
 }
 
@@ -60,11 +68,24 @@ func SMTPFromConfig(cfg *config.Config) *SMTPConfig {
 }
 
 func (s *SMTPConfig) IsConfigured() bool {
-	return s.APIKey != "" || s.Host != ""
+	return s.APIKey != "" || s.MailerSendKey != "" || s.Host != ""
 }
 
 func (s *SMTPConfig) useBrevoAPI() bool {
+	if s.DefaultProvider == "mailerlite" && s.MailerSendKey != "" {
+		return false
+	}
 	return s.APIKey != ""
+}
+
+func (s *SMTPConfig) useMailerSend() bool {
+	if s.DefaultProvider == "mailerlite" && s.MailerSendKey != "" {
+		return true
+	}
+	if s.DefaultProvider == "brevo" || s.APIKey != "" {
+		return false
+	}
+	return s.MailerSendKey != ""
 }
 
 func (s *SMTPConfig) From() string {
@@ -72,6 +93,24 @@ func (s *SMTPConfig) From() string {
 		return fmt.Sprintf("%s <%s>", s.FromName, s.FromEmail)
 	}
 	return s.FromEmail
+}
+
+// TestProvider sends a test email using a specific provider ("brevo" or "mailerlite").
+func TestProvider(cfg *SMTPConfig, provider, to, subject, htmlBody string) error {
+	switch provider {
+	case "brevo":
+		if cfg.APIKey == "" {
+			return fmt.Errorf("Brevo API key not configured")
+		}
+		return brevoSend(cfg, []string{to}, subject, htmlBody)
+	case "mailerlite":
+		if cfg.MailerSendKey == "" {
+			return fmt.Errorf("MailerSend API key not configured")
+		}
+		return mailerSendSend(cfg, []string{to}, subject, htmlBody)
+	default:
+		return fmt.Errorf("unknown provider: %s", provider)
+	}
 }
 
 func sendEmail(cfg *config.Config, configJSON string, build *models.Build, eventType string) error {
@@ -189,8 +228,11 @@ func buildAlertEmailHTML(build *models.Build, eventType string) string {
 		}())
 }
 
-// emailSend dispatches via Brevo REST API or SMTP depending on config.
+// emailSend dispatches via Brevo REST API, MailerSend, or SMTP depending on config.
 func emailSend(cfg *SMTPConfig, to []string, subject, htmlBody string) error {
+	if cfg.useMailerSend() {
+		return mailerSendSend(cfg, to, subject, htmlBody)
+	}
 	if cfg.useBrevoAPI() {
 		return brevoSend(cfg, to, subject, htmlBody)
 	}
@@ -254,6 +296,57 @@ func brevoSend(cfg *SMTPConfig, to []string, subject, htmlBody string) error {
 // SendTestEmail is exported for use by admin handler.
 func SendTestEmail(cfg *SMTPConfig, to, subject, htmlBody string) error {
 	return emailSend(cfg, []string{to}, subject, htmlBody)
+}
+
+// mailerSendSend sends email via MailerSend (MailerLite) REST API.
+func mailerSendSend(cfg *SMTPConfig, to []string, subject, htmlBody string) error {
+	type person struct {
+		Email string `json:"email"`
+		Name  string `json:"name,omitempty"`
+	}
+	type payload struct {
+		From    person   `json:"from"`
+		To      []person `json:"to"`
+		Subject string   `json:"subject"`
+		HTML    string   `json:"html"`
+	}
+
+	recipients := make([]person, len(to))
+	for i, addr := range to {
+		recipients[i] = person{Email: addr}
+	}
+
+	p := payload{
+		From:    person{Email: cfg.FromEmail, Name: cfg.FromName},
+		To:      recipients,
+		Subject: subject,
+		HTML:    htmlBody,
+	}
+
+	body, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Errorf("marshal mailersend payload: %w", err)
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, _ := http.NewRequest("POST", "https://api.mailersend.com/v1/email", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+cfg.MailerSendKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("mailersend api: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		io.Copy(io.Discard, resp.Body)
+		return nil
+	}
+
+	respBody, _ := io.ReadAll(resp.Body)
+	return fmt.Errorf("MailerSend API HTTP %d: %s", resp.StatusCode, string(respBody))
 }
 
 func smtpSend(cfg *SMTPConfig, to []string, subject, htmlBody string) error {

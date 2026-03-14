@@ -22,18 +22,34 @@ func (h *AdminHandler) GetEmailSettings(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	settings, err := h.store.GetSettings(r.Context(), "smtp.")
+	// Fetch both smtp.* and email.* settings
+	smtpSettings, err := h.store.GetSettings(r.Context(), "smtp.")
+	if err != nil {
+		jsonError(w, "failed to get settings", http.StatusInternalServerError)
+		return
+	}
+	emailSettings, err := h.store.GetSettings(r.Context(), "email.")
 	if err != nil {
 		jsonError(w, "failed to get settings", http.StatusInternalServerError)
 		return
 	}
 
-	// Never expose secrets in full
-	if p, ok := settings["smtp.pass"]; ok && len(p) > 4 {
-		settings["smtp.pass"] = p[:4] + "****"
+	// Merge into one map
+	settings := make(map[string]string)
+	for k, v := range smtpSettings {
+		settings[k] = v
 	}
-	if k, ok := settings["smtp.api_key"]; ok && len(k) > 8 {
-		settings["smtp.api_key"] = k[:8] + "****"
+	for k, v := range emailSettings {
+		settings[k] = v
+	}
+
+	// Never expose secrets in full
+	for _, key := range []string{"smtp.pass", "smtp.api_key", "email.mailerlite_api_key"} {
+		if v, ok := settings[key]; ok && len(v) > 8 {
+			settings[key] = v[:8] + "****"
+		} else if ok && len(v) > 0 {
+			settings[key] = "****"
+		}
 	}
 
 	jsonResp(w, http.StatusOK, settings)
@@ -53,13 +69,16 @@ func (h *AdminHandler) UpdateEmailSettings(w http.ResponseWriter, r *http.Reques
 	}
 
 	allowedKeys := map[string]bool{
-		"smtp.host":       true,
-		"smtp.port":       true,
-		"smtp.user":       true,
-		"smtp.pass":       true,
-		"smtp.from_email": true,
-		"smtp.from_name":  true,
-		"smtp.api_key":    true,
+		"smtp.api_key":              true,
+		"smtp.from_email":           true,
+		"smtp.from_name":            true,
+		"email.mailerlite_api_key":  true,
+		"email.default_provider":    true,
+	}
+
+	secretKeys := map[string]bool{
+		"smtp.api_key":             true,
+		"email.mailerlite_api_key": true,
 	}
 
 	for key, value := range req {
@@ -67,7 +86,7 @@ func (h *AdminHandler) UpdateEmailSettings(w http.ResponseWriter, r *http.Reques
 			continue
 		}
 		// Skip masked secrets
-		if (key == "smtp.pass" || key == "smtp.api_key") && len(value) > 4 && value[len(value)-4:] == "****" {
+		if secretKeys[key] && len(value) > 4 && value[len(value)-4:] == "****" {
 			continue
 		}
 		if err := h.store.SetSetting(r.Context(), key, value); err != nil {
@@ -87,24 +106,28 @@ func (h *AdminHandler) TestEmail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		To string `json:"to"`
+		To       string `json:"to"`
+		Provider string `json:"provider"` // "brevo" or "mailerlite"
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.To == "" {
 		jsonError(w, "provide 'to' email address", http.StatusBadRequest)
 		return
 	}
 
-	settings, err := h.store.GetSettings(r.Context(), "smtp.")
-	if err != nil {
-		jsonError(w, "failed to get settings", http.StatusInternalServerError)
-		return
+	// Fetch all settings
+	allSettings := make(map[string]string)
+	for _, prefix := range []string{"smtp.", "email."} {
+		s, err := h.store.GetSettings(r.Context(), prefix)
+		if err != nil {
+			jsonError(w, "failed to get settings", http.StatusInternalServerError)
+			return
+		}
+		for k, v := range s {
+			allSettings[k] = v
+		}
 	}
 
-	cfg := notify.SMTPFromSettings(settings)
-	if !cfg.IsConfigured() {
-		jsonError(w, "email not configured — set either Brevo API key or SMTP host", http.StatusBadRequest)
-		return
-	}
+	cfg := notify.SMTPFromSettings(allSettings)
 
 	subject := "BuildMe Test Email"
 	body := `<!DOCTYPE html>
@@ -114,8 +137,19 @@ func (h *AdminHandler) TestEmail(w http.ResponseWriter, r *http.Request) {
 <p>This is a test email from BuildMe. Your email configuration is working correctly.</p>
 </div></body></html>`
 
-	if err := notify.SendTestEmail(cfg, req.To, subject, body); err != nil {
-		jsonError(w, "send failed: "+err.Error(), http.StatusInternalServerError)
+	var sendErr error
+	if req.Provider != "" {
+		sendErr = notify.TestProvider(cfg, req.Provider, req.To, subject, body)
+	} else {
+		if !cfg.IsConfigured() {
+			jsonError(w, "no email provider configured", http.StatusBadRequest)
+			return
+		}
+		sendErr = notify.SendTestEmail(cfg, req.To, subject, body)
+	}
+
+	if sendErr != nil {
+		jsonError(w, "send failed: "+sendErr.Error(), http.StatusInternalServerError)
 		return
 	}
 
