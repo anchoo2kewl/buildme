@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	urlpath "path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -112,6 +113,7 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 			r.Get("/builds", buildH.List)
 			r.Get("/builds/{buildId}", buildH.Get)
 			r.Post("/builds/{buildId}/retrigger", syncH.RetriggerBuild)
+			r.Post("/builds/{buildId}/cancel", syncH.CancelBuild)
 			r.Post("/sync", syncH.SyncProject)
 
 			// Providers (admin+)
@@ -187,15 +189,19 @@ func serveSPA(r chi.Router, distPath string) {
 			return
 		}
 
-		// Try route-specific index.html (Qwik City SSG generates per-route HTML)
-		routeIndex := filepath.Join(absPath, r.URL.Path, "index.html")
-		if _, err := os.Stat(routeIndex); err == nil {
-			w.Header().Set("Cache-Control", "no-cache, must-revalidate")
-			http.ServeFile(w, r, routeIndex)
-			return
+		// Walk up path to find nearest parent index.html
+		urlPath := r.URL.Path
+		for urlPath != "" && urlPath != "/" {
+			candidate := filepath.Join(absPath, urlPath, "index.html")
+			if _, err := os.Stat(candidate); err == nil {
+				w.Header().Set("Cache-Control", "no-cache, must-revalidate")
+				http.ServeFile(w, r, candidate)
+				return
+			}
+			urlPath = urlpath.Dir(urlPath)
 		}
 
-		// Fallback to root index.html (SPA catch-all)
+		// Final fallback to root index.html
 		indexPath := filepath.Join(absPath, "index.html")
 		if _, err := os.Stat(indexPath); err == nil {
 			w.Header().Set("Cache-Control", "no-cache, must-revalidate")

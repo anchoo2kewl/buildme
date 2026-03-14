@@ -14,6 +14,7 @@ export interface Project {
   version_path: string;
   version_field: string;
   health_path: string;
+  metadata?: string;
   created_at: string;
   updated_at: string;
   [key: string]: unknown;
@@ -198,6 +199,13 @@ export class BuildMeClient {
   async retriggerBuild(projectId: string, buildId: string): Promise<unknown> {
     return this.request(
       `/api/projects/${encodeURIComponent(projectId)}/builds/${encodeURIComponent(buildId)}/retrigger`,
+      { method: "POST" }
+    );
+  }
+
+  async cancelBuild(projectId: string, buildId: string): Promise<unknown> {
+    return this.request(
+      `/api/projects/${encodeURIComponent(projectId)}/builds/${encodeURIComponent(buildId)}/cancel`,
       { method: "POST" }
     );
   }

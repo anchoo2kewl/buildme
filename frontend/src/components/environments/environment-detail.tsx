@@ -1,5 +1,5 @@
 import { component$, type Signal } from "@builder.io/qwik";
-import type { EnvironmentStatus } from "~/lib/types";
+import type { EnvironmentStatus, ProbesSummary } from "~/lib/types";
 
 interface EnvironmentDetailProps {
   env: Signal<EnvironmentStatus | null>;
@@ -12,6 +12,16 @@ function formatUptime(seconds: number): string {
   if (days > 0) return `${days}d ${hours}h ${mins}m`;
   if (hours > 0) return `${hours}h ${mins}m`;
   return `${mins}m`;
+}
+
+function formatMB(val: unknown): string | undefined {
+  if (typeof val !== "number") return undefined;
+  return `${val.toFixed(2)} MB`;
+}
+
+function formatMs(val: unknown): string | undefined {
+  if (typeof val !== "number") return undefined;
+  return `${val.toFixed(2)} ms`;
 }
 
 function getVal(obj: Record<string, unknown> | null, ...keys: string[]): unknown {
@@ -41,6 +51,8 @@ export const EnvironmentDetail = component$<EnvironmentDetailProps>(
     const frontend = vi ? (vi["frontend"] as Record<string, unknown> | undefined) : undefined;
     const runtime = vi ? (vi["runtime"] as Record<string, unknown> | undefined) : undefined;
     const database = vi ? (vi["database"] as Record<string, unknown> | undefined) : undefined;
+    const resources = vi ? (vi["resources"] as Record<string, unknown> | undefined) : undefined;
+    const probes = vi ? (vi["probes"] as ProbesSummary | undefined) : undefined;
 
     return (
       <div
@@ -174,6 +186,61 @@ export const EnvironmentDetail = component$<EnvironmentDetailProps>(
                       : undefined
                   }
                 />
+              </Section>
+            )}
+
+            {/* Resources section */}
+            {resources && (
+              <Section title="Resources">
+                <KV label="Memory Alloc" value={formatMB(resources["memory_alloc_mb"])} />
+                <KV label="Heap In-Use" value={formatMB(resources["heap_inuse_mb"])} />
+                <KV label="Stack In-Use" value={formatMB(resources["stack_inuse_mb"])} />
+                <KV
+                  label="Goroutines"
+                  value={
+                    typeof resources["goroutines"] === "number"
+                      ? String(resources["goroutines"])
+                      : undefined
+                  }
+                />
+                <KV
+                  label="GC Cycles"
+                  value={
+                    typeof resources["num_gc"] === "number"
+                      ? String(resources["num_gc"])
+                      : undefined
+                  }
+                />
+                <KV label="GC Pause Total" value={formatMs(resources["gc_pause_total_ms"])} />
+                <KV label="GC Last Pause" value={formatMs(resources["gc_last_pause_ms"])} />
+              </Section>
+            )}
+
+            {/* Probes section */}
+            {probes && probes.regions && probes.regions.length > 0 && (
+              <Section title="Probes">
+                <div class="flex justify-between py-1 text-sm">
+                  <span class="text-muted">Connected</span>
+                  <span class="text-text">
+                    {probes.connected}/{probes.total}
+                  </span>
+                </div>
+                {probes.regions.map((r) => (
+                  <div
+                    key={r.slug}
+                    class="flex items-center justify-between py-1 text-sm"
+                  >
+                    <span class="flex items-center gap-2 text-muted">
+                      <span
+                        class={`inline-block h-2 w-2 rounded-full ${r.connected ? "bg-success" : "bg-failure"}`}
+                      />
+                      {r.name}
+                    </span>
+                    <span class="font-mono text-text">
+                      {r.probe_version || "—"}
+                    </span>
+                  </div>
+                ))}
               </Section>
             )}
 

@@ -19,14 +19,26 @@ export interface User {
   display_name: string;
   avatar_url?: string;
   is_super_admin: boolean;
+  invites_remaining?: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface Invite {
+  id: number;
+  code: string;
+  created_by: number;
+  used_by?: number;
+  expires_at: string;
+  used_at?: string;
+  created_at: string;
 }
 
 export interface ProjectMetadata {
   deployment_type?: string;
   tech_stack?: string[];
   ports?: Record<string, number[]>;
+  mcp_url?: string;
 }
 
 export interface Project {

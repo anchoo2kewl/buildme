@@ -4,6 +4,7 @@ import { get } from "~/lib/api";
 import type { Build } from "~/lib/types";
 import { StatusBadge } from "~/components/builds/status-badge";
 import { BuildTimeline } from "~/components/builds/build-timeline";
+import { CIProviderIcon, providerDisplayName } from "~/components/shared/ci-provider-icon";
 
 export default component$(() => {
   const loc = useLocation();
@@ -55,9 +56,12 @@ export default component$(() => {
                   href={build.value.provider_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="rounded-lg border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:border-accent hover:text-text"
+                  class="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:border-accent hover:text-text"
                 >
-                  View on {build.value.provider_type}
+                  {build.value.provider_type && (
+                    <CIProviderIcon provider={build.value.provider_type} size={16} />
+                  )}
+                  View on {build.value.provider_type ? providerDisplayName(build.value.provider_type) : "CI"}
                 </a>
               )}
             </div>

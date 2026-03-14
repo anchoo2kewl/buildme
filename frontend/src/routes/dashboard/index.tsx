@@ -10,6 +10,7 @@ import type {
 } from "~/lib/types";
 import { parseMetadata } from "~/lib/types";
 import { EnvironmentDetail } from "~/components/environments/environment-detail";
+import { CIProviderIcon } from "~/components/shared/ci-provider-icon";
 
 type EnvFilter = "all" | "production" | "staging" | "uat";
 
@@ -261,6 +262,22 @@ const ProjectCard = component$<ProjectCardProps>(
             )}
           </div>
           <div class="flex items-center gap-2">
+            {meta.mcp_url && (() => {
+              let port = "";
+              try {
+                const u = new URL(meta.mcp_url);
+                if (u.port) port = `:${u.port}`;
+              } catch { /* ignore */ }
+              return (
+                <span
+                  class="bm-tag inline-flex items-center gap-1 rounded bg-success/15 px-2 py-0.5 text-[11px] font-medium text-success"
+                  title={meta.mcp_url}
+                >
+                  <span class="inline-block h-1.5 w-1.5 rounded-full bg-success" />
+                  MCP{port}
+                </span>
+              );
+            })()}
             {meta.deployment_type && (
               <span class="bm-tag rounded bg-accent/15 px-2 py-0.5 text-[11px] font-medium text-accent">
                 {meta.deployment_type}
@@ -375,6 +392,22 @@ const ProjectCard = component$<ProjectCardProps>(
                     <span>{backend["go_version"]}</span>
                   )}
                 </div>
+
+                {/* Resource summary */}
+                {vi?.["resources"] && (
+                  <div class="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-muted">
+                    {typeof (vi["resources"] as Record<string, unknown>)?.["memory_alloc_mb"] === "number" && (
+                      <span>
+                        {((vi["resources"] as Record<string, unknown>)["memory_alloc_mb"] as number).toFixed(1)}MB
+                      </span>
+                    )}
+                    {typeof (vi["resources"] as Record<string, unknown>)?.["goroutines"] === "number" && (
+                      <span>
+                        {(vi["resources"] as Record<string, unknown>)["goroutines"]} goroutines
+                      </span>
+                    )}
+                  </div>
+                )}
               </button>
             );
           })}
@@ -387,6 +420,9 @@ const ProjectCard = component$<ProjectCardProps>(
               <span class={buildStatusColor(mainBuild.status)}>
                 {buildStatusIcon(mainBuild.status)}
               </span>
+              {mainBuild.provider_type && (
+                <CIProviderIcon provider={mainBuild.provider_type} size={14} />
+              )}
               <span class="font-medium text-text">{mainBuild.branch}</span>
               <span class="font-mono text-muted">
                 {mainBuild.commit_sha?.substring(0, 7)}

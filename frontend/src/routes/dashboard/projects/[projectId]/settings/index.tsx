@@ -4,6 +4,7 @@ import { get, post, put, del } from "~/lib/api";
 import type { CIProvider, Project, ProjectMetadata } from "~/lib/types";
 import { parseMetadata } from "~/lib/types";
 import { ProviderForm } from "~/components/projects/provider-form";
+import { CIProviderIcon, providerDisplayName } from "~/components/shared/ci-provider-icon";
 
 export default component$(() => {
   const loc = useLocation();
@@ -33,6 +34,7 @@ export default component$(() => {
   const portsProd = useSignal("");
   const portsStaging = useSignal("");
   const portsUat = useSignal("");
+  const mcpUrl = useSignal("");
 
   useVisibleTask$(async () => {
     try {
@@ -54,6 +56,7 @@ export default component$(() => {
       portsProd.value = (meta.ports?.production || []).join(", ");
       portsStaging.value = (meta.ports?.staging || []).join(", ");
       portsUat.value = (meta.ports?.uat || []).join(", ");
+      mcpUrl.value = meta.mcp_url || "";
     } catch {
       // ignore
     }
@@ -235,6 +238,7 @@ export default component$(() => {
                 if (portsStaging.value) ports.staging = parsePorts(portsStaging.value);
                 if (portsUat.value) ports.uat = parsePorts(portsUat.value);
                 if (Object.keys(ports).length > 0) meta.ports = ports;
+                if (mcpUrl.value) meta.mcp_url = mcpUrl.value;
 
                 const updated = await put<Project>(`/projects/${projectId}`, {
                   metadata: JSON.stringify(meta),
@@ -316,6 +320,21 @@ export default component$(() => {
               </div>
             </div>
 
+            <div>
+              <label class="block text-xs font-medium text-muted">
+                MCP Server URL
+              </label>
+              <input
+                type="url"
+                bind:value={mcpUrl}
+                placeholder="https://example.com:13426/mcp"
+                class="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted focus:border-accent focus:outline-none"
+              />
+              <span class="text-[11px] text-muted">
+                If this project has an MCP server, enter its URL. Shown as a badge on the dashboard.
+              </span>
+            </div>
+
             <div class="flex justify-end">
               <button
                 type="submit"
@@ -377,8 +396,9 @@ export default component$(() => {
                     <span class="ml-2 text-sm text-muted">
                       {p.repo_owner}/{p.repo_name}
                     </span>
-                    <span class="ml-2 rounded bg-surface px-1.5 py-0.5 text-xs text-muted">
-                      {p.provider_type}
+                    <span class="ml-2 inline-flex items-center gap-1 rounded bg-surface px-1.5 py-0.5 text-xs text-muted">
+                      <CIProviderIcon provider={p.provider_type} size={14} />
+                      {providerDisplayName(p.provider_type)}
                     </span>
                   </div>
                   <div class="flex items-center gap-2">

@@ -1,20 +1,34 @@
-import { component$, useSignal } from "@builder.io/qwik";
-import { useNavigate } from "@builder.io/qwik-city";
+import { component$, useSignal, useVisibleTask$ } from "@builder.io/qwik";
+import { useLocation, useNavigate } from "@builder.io/qwik-city";
 import { post, setToken } from "~/lib/api";
 import type { User } from "~/lib/types";
 
 export default component$(() => {
   const nav = useNavigate();
+  const loc = useLocation();
   const email = useSignal("");
   const password = useSignal("");
   const displayName = useSignal("");
+  const inviteCode = useSignal("");
   const error = useSignal("");
   const loading = useSignal(false);
+  const codeFromUrl = useSignal(false);
+
+  useVisibleTask$(() => {
+    const code = loc.url.searchParams.get("code");
+    if (code) {
+      inviteCode.value = code;
+      codeFromUrl.value = true;
+    }
+  });
 
   return (
     <div class="flex min-h-screen items-center justify-center bg-surface">
       <div class="w-full max-w-sm rounded-lg border border-border bg-elevated p-8">
-        <h1 class="mb-6 text-2xl font-bold text-text">Create Account</h1>
+        <h1 class="mb-1 text-2xl font-bold text-text">Create Account</h1>
+        <p class="mb-6 text-sm text-muted">
+          Invite only. You need an invite code to sign up.
+        </p>
 
         {error.value && (
           <div class="mb-4 rounded-lg bg-failure/20 px-4 py-2 text-sm text-failure">
@@ -34,6 +48,7 @@ export default component$(() => {
                   email: email.value,
                   password: password.value,
                   display_name: displayName.value,
+                  invite_code: inviteCode.value,
                 },
               );
               setToken(res.token);
@@ -46,6 +61,19 @@ export default component$(() => {
           }}
           class="space-y-4"
         >
+          <div>
+            <label class="block text-sm font-medium text-text">
+              Invite Code
+            </label>
+            <input
+              type="text"
+              bind:value={inviteCode}
+              required
+              readOnly={codeFromUrl.value}
+              class={`mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-text placeholder:text-muted focus:border-accent focus:outline-none ${codeFromUrl.value ? "opacity-60" : ""}`}
+              placeholder="Enter your invite code"
+            />
+          </div>
           <div>
             <label class="block text-sm font-medium text-text">
               Display Name

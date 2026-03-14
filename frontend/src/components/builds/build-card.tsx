@@ -1,6 +1,7 @@
 import { component$ } from "@builder.io/qwik";
 import type { Build } from "~/lib/types";
 import { StatusBadge } from "./status-badge";
+import { CIProviderIcon } from "~/components/shared/ci-provider-icon";
 
 interface BuildCardProps {
   build: Build;
@@ -55,9 +56,9 @@ export const BuildCard = component$<BuildCardProps>(({ build }) => {
           </div>
         </div>
         <div class="ml-4 shrink-0">
-          <span class="rounded bg-surface px-1.5 py-0.5 text-xs text-muted">
-            {build.provider_type}
-          </span>
+          {build.provider_type && (
+            <CIProviderIcon provider={build.provider_type} size={18} />
+          )}
         </div>
       </div>
     </a>

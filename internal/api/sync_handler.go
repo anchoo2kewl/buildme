@@ -154,6 +154,86 @@ func (h *SyncHandler) RetriggerBuild(w http.ResponseWriter, r *http.Request) {
 	jsonResp(w, http.StatusOK, map[string]string{"message": "retrigger requested"})
 }
 
+// CancelBuild cancels a running build on the CI provider.
+func (h *SyncHandler) CancelBuild(w http.ResponseWriter, r *http.Request) {
+	buildID, _ := strconv.ParseInt(chi.URLParam(r, "buildId"), 10, 64)
+	build, err := h.store.GetBuildByID(r.Context(), buildID)
+	if err != nil || build == nil {
+		jsonError(w, "build not found", http.StatusNotFound)
+		return
+	}
+
+	if build.Status.IsTerminal() {
+		jsonError(w, "build already finished", http.StatusBadRequest)
+		return
+	}
+
+	prov, err := h.store.GetCIProviderByID(r.Context(), build.ProviderID)
+	if err != nil || prov == nil {
+		jsonError(w, "provider not found", http.StatusNotFound)
+		return
+	}
+
+	switch prov.ProviderType {
+	case models.ProviderGitHub:
+		err = h.cancelGitHub(r.Context(), prov, build)
+	case models.ProviderTravis:
+		err = h.cancelTravis(r.Context(), prov, build)
+	case models.ProviderCircleCI:
+		err = h.cancelCircleCI(r.Context(), prov, build)
+	default:
+		jsonError(w, "unsupported provider", http.StatusBadRequest)
+		return
+	}
+
+	if err != nil {
+		slog.Error("cancel failed", "error", err, "build_id", buildID)
+		jsonError(w, "cancel failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	jsonResp(w, http.StatusOK, map[string]string{"message": "cancel requested"})
+}
+
+func (h *SyncHandler) cancelGitHub(ctx context.Context, prov *models.CIProvider, build *models.Build) error {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/actions/runs/%s/cancel", prov.RepoOwner, prov.RepoName, build.ExternalID)
+	return h.ghPost(ctx, url)
+}
+
+func (h *SyncHandler) cancelTravis(ctx context.Context, prov *models.CIProvider, build *models.Build) error {
+	url := fmt.Sprintf("https://api.travis-ci.com/build/%s/cancel", build.ExternalID)
+	req, _ := http.NewRequestWithContext(ctx, "POST", url, nil)
+	req.Header.Set("Authorization", "token "+prov.APIToken)
+	req.Header.Set("Travis-API-Version", "3")
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("travis API: %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func (h *SyncHandler) cancelCircleCI(ctx context.Context, prov *models.CIProvider, build *models.Build) error {
+	url := fmt.Sprintf("https://circleci.com/api/v2/workflow/%s/cancel", build.ExternalID)
+	req, _ := http.NewRequestWithContext(ctx, "POST", url, nil)
+	req.Header.Set("Content-Type", "application/json")
+	if prov.APIToken != "" {
+		req.Header.Set("Circle-Token", prov.APIToken)
+	}
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("circleci API: %d", resp.StatusCode)
+	}
+	return nil
+}
+
 func (h *SyncHandler) retriggerCheckSuites(ctx context.Context, prov *models.CIProvider, build *models.Build) error {
 	// Get check suites for the commit
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/commits/%s/check-suites", prov.RepoOwner, prov.RepoName, build.CommitSHA)

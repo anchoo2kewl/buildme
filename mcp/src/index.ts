@@ -68,6 +68,18 @@ function formatResponse(data: unknown, verbose = false): string {
   return verbose ? JSON.stringify(data, null, 2) : JSON.stringify(data);
 }
 
+interface ProjectMetadata {
+  deployment_type?: string;
+  tech_stack?: string[];
+  ports?: Record<string, number[]>;
+  mcp_url?: string;
+}
+
+function parseMetadata(raw?: string): ProjectMetadata {
+  if (!raw || raw === "{}") return {};
+  try { return JSON.parse(raw); } catch { return {}; }
+}
+
 // --- Minimizer helpers ---
 
 function minimizeDashboardEntry(entry: DashboardEntry) {
@@ -173,7 +185,7 @@ function createServer(client: BuildMeClient, cachedUser?: User): McpServer {
   // --- list_projects ---
   server.tool(
     "list_projects",
-    "List user's projects",
+    "List user's projects with environment URLs and MCP info",
     {
       verbose: z.boolean().optional().describe("Return full details (default: false)"),
     },
@@ -181,7 +193,14 @@ function createServer(client: BuildMeClient, cachedUser?: User): McpServer {
       const projects = await client.listProjects();
       const data = verbose
         ? projects
-        : projects.map((p) => ({ id: p.id, name: p.name, slug: p.slug }));
+        : projects.map((p) => {
+            const meta = parseMetadata(p.metadata);
+            const base: Record<string, unknown> = { id: p.id, name: p.name, slug: p.slug };
+            if (p.production_url) base.production_url = p.production_url;
+            if (p.staging_url) base.staging_url = p.staging_url;
+            if (meta.mcp_url) base.mcp_url = meta.mcp_url;
+            return base;
+          });
       return { content: [{ type: "text" as const, text: formatResponse(data, verbose) }] };
     }
   );
@@ -252,7 +271,7 @@ function createServer(client: BuildMeClient, cachedUser?: User): McpServer {
   // --- retrigger_build ---
   server.tool(
     "retrigger_build",
-    "Retrigger a build on CI",
+    "Retrigger a build on CI (re-runs the same commit)",
     {
       project_id: z.string().describe("Project ID"),
       build_id: z.string().describe("Build ID"),
@@ -261,6 +280,80 @@ function createServer(client: BuildMeClient, cachedUser?: User): McpServer {
     async ({ project_id, build_id, verbose }) => {
       const data = await client.retriggerBuild(project_id, build_id);
       return { content: [{ type: "text" as const, text: formatResponse(data, verbose) }] };
+    }
+  );
+
+  // --- restart_build (alias for retrigger) ---
+  server.tool(
+    "restart_build",
+    "Restart a build (alias for retrigger_build)",
+    {
+      project_id: z.string().describe("Project ID"),
+      build_id: z.string().describe("Build ID"),
+      verbose: z.boolean().optional().describe("Return full details (default: false)"),
+    },
+    async ({ project_id, build_id, verbose }) => {
+      const data = await client.retriggerBuild(project_id, build_id);
+      return { content: [{ type: "text" as const, text: formatResponse(data, verbose) }] };
+    }
+  );
+
+  // --- cancel_build ---
+  server.tool(
+    "cancel_build",
+    "Cancel a running/queued build on CI",
+    {
+      project_id: z.string().describe("Project ID"),
+      build_id: z.string().describe("Build ID"),
+      verbose: z.boolean().optional().describe("Return full details (default: false)"),
+    },
+    async ({ project_id, build_id, verbose }) => {
+      const data = await client.cancelBuild(project_id, build_id);
+      return { content: [{ type: "text" as const, text: formatResponse(data, verbose) }] };
+    }
+  );
+
+  // --- watch_builds ---
+  server.tool(
+    "watch_builds",
+    "Get active (running/queued) builds across all or one project. Returns adaptive poll_interval_seconds: 30s when builds are active, 300s when idle. Call this repeatedly to monitor build progress.",
+    {
+      project_id: z.string().optional().describe("Project ID (omit for all projects)"),
+      verbose: z.boolean().optional().describe("Return full details (default: false)"),
+    },
+    async ({ project_id, verbose }) => {
+      let activeBuilds: Array<ReturnType<typeof minimizeBuild> & { project_id: number; project_name?: string }> = [];
+
+      if (project_id) {
+        const result = await client.listBuilds(project_id, { per_page: 20 });
+        activeBuilds = (result.builds || [])
+          .filter((b) => b.status === "running" || b.status === "queued")
+          .map((b) => ({ ...minimizeBuild(b), project_id: b.project_id }));
+      } else {
+        const dashboard = await client.getDashboard();
+        for (const entry of dashboard) {
+          for (const b of entry.builds) {
+            if (b.status === "running" || b.status === "queued") {
+              activeBuilds.push({
+                ...minimizeBuild(b),
+                project_id: entry.project.id,
+                project_name: entry.project.name,
+              });
+            }
+          }
+        }
+      }
+
+      const hasActive = activeBuilds.length > 0;
+      const result = {
+        active_builds: activeBuilds,
+        total_active: activeBuilds.length,
+        poll_interval_seconds: hasActive ? 30 : 300,
+        recommendation: hasActive
+          ? `${activeBuilds.length} build(s) in progress. Poll again in 30s for updates.`
+          : "No active builds. Poll again in 5 minutes.",
+      };
+      return { content: [{ type: "text" as const, text: formatResponse(result, verbose) }] };
     }
   );
 

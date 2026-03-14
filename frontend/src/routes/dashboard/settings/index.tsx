@@ -1,7 +1,8 @@
-import { component$, useSignal, useContext } from "@builder.io/qwik";
+import { component$, useSignal, useContext, useVisibleTask$ } from "@builder.io/qwik";
 import { useNavigate } from "@builder.io/qwik-city";
 import { AuthContext } from "~/context/auth-context";
-import { post, clearToken } from "~/lib/api";
+import { post, get, clearToken } from "~/lib/api";
+import type { Invite } from "~/lib/types";
 
 export default component$(() => {
   const nav = useNavigate();
@@ -10,6 +11,19 @@ export default component$(() => {
   const newPassword = useSignal("");
   const error = useSignal("");
   const success = useSignal("");
+
+  const invites = useSignal<Invite[]>([]);
+  const inviteLoading = useSignal(false);
+  const inviteError = useSignal("");
+  const copied = useSignal<string | null>(null);
+
+  useVisibleTask$(async () => {
+    try {
+      invites.value = await get<Invite[]>("/invites");
+    } catch {
+      // ignore
+    }
+  });
 
   return (
     <div class="mx-auto max-w-lg">
@@ -90,6 +104,106 @@ export default component$(() => {
             Update Password
           </button>
         </form>
+      </section>
+
+      <section class="mb-8 rounded-lg border border-border bg-elevated p-6">
+        <h2 class="mb-4 text-lg font-semibold text-text">Invites</h2>
+        <div class="mb-4 flex items-center justify-between">
+          <span class="text-sm text-muted">
+            Remaining:{" "}
+            <span class="font-medium text-text">
+              {auth.user?.invites_remaining === -1
+                ? "Unlimited"
+                : auth.user?.invites_remaining ?? 0}
+            </span>
+          </span>
+          <button
+            disabled={inviteLoading.value || (auth.user?.invites_remaining !== -1 && (auth.user?.invites_remaining ?? 0) <= 0)}
+            onClick$={async () => {
+              inviteLoading.value = true;
+              inviteError.value = "";
+              try {
+                const inv = await post<Invite>("/invites", {});
+                invites.value = [inv, ...invites.value];
+              } catch (e: any) {
+                inviteError.value = e.message;
+              } finally {
+                inviteLoading.value = false;
+              }
+            }}
+            class="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+          >
+            {inviteLoading.value ? "Creating..." : "Create Invite"}
+          </button>
+        </div>
+
+        {inviteError.value && (
+          <div class="mb-3 rounded bg-failure/20 px-3 py-2 text-sm text-failure">
+            {inviteError.value}
+          </div>
+        )}
+
+        {invites.value.length === 0 ? (
+          <p class="text-sm text-muted">No invites created yet.</p>
+        ) : (
+          <div class="space-y-2">
+            {invites.value.map((inv) => {
+              const isUsed = !!inv.used_at;
+              const isExpired =
+                !isUsed && new Date(inv.expires_at) < new Date();
+              const status = isUsed
+                ? "used"
+                : isExpired
+                  ? "expired"
+                  : "active";
+              const statusColor =
+                status === "used"
+                  ? "text-success"
+                  : status === "expired"
+                    ? "text-failure"
+                    : "text-accent";
+              const inviteUrl = `https://build.biswas.me/auth/signup?code=${inv.code}`;
+
+              return (
+                <div
+                  key={inv.id}
+                  class="flex items-center justify-between rounded-lg border border-border bg-surface px-3 py-2"
+                >
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-2">
+                      <span class="font-mono text-sm text-text">
+                        {inv.code}
+                      </span>
+                      <span class={`text-xs font-medium ${statusColor}`}>
+                        {status}
+                      </span>
+                    </div>
+                    <span class="text-xs text-muted">
+                      {new Date(inv.created_at).toLocaleDateString()}
+                    </span>
+                  </div>
+                  {status === "active" && (
+                    <button
+                      onClick$={async () => {
+                        try {
+                          await navigator.clipboard.writeText(inviteUrl);
+                          copied.value = inv.code;
+                          setTimeout(() => (copied.value = null), 2000);
+                        } catch {
+                          // fallback
+                        }
+                      }}
+                      class="ml-2 rounded px-2 py-1 text-xs text-accent hover:bg-accent/10"
+                      title="Copy invite link"
+                    >
+                      {copied.value === inv.code ? "Copied!" : "Copy Link"}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       <button
