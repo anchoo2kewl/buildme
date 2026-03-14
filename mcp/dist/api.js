@@ -39,7 +39,24 @@ export class BuildMeClient {
         return this.request("/api/dashboard");
     }
     async getDrift() {
-        return this.request("/api/drift");
+        const data = await this.request("/api/drift");
+        const flat = [];
+        if (data && data.projects) {
+            for (const dp of data.projects) {
+                for (const es of dp.environments || []) {
+                    flat.push({
+                        project_id: es.project_id,
+                        project_name: es.project_name,
+                        env: es.env,
+                        deployed_sha: es.deployed_sha,
+                        health: es.health_status,
+                        response_time_ms: es.response_time_ms,
+                        is_drifted: es.is_drifted,
+                    });
+                }
+            }
+        }
+        return flat;
     }
     async syncAll() {
         return this.request("/api/sync", { method: "POST" });
@@ -73,6 +90,9 @@ export class BuildMeClient {
     }
     async retriggerBuild(projectId, buildId) {
         return this.request(`/api/projects/${encodeURIComponent(projectId)}/builds/${encodeURIComponent(buildId)}/retrigger`, { method: "POST" });
+    }
+    async cancelBuild(projectId, buildId) {
+        return this.request(`/api/projects/${encodeURIComponent(projectId)}/builds/${encodeURIComponent(buildId)}/cancel`, { method: "POST" });
     }
     async getVersion() {
         return this.request("/api/version");

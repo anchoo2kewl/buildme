@@ -13,6 +13,7 @@ export interface Project {
     version_path: string;
     version_field: string;
     health_path: string;
+    metadata?: string;
     created_at: string;
     updated_at: string;
     [key: string]: unknown;
@@ -57,9 +58,12 @@ export interface DashboardEntry {
 }
 export interface DriftEntry {
     project_id: number;
+    project_name: string;
     env: string;
     deployed_sha: string;
     health: number;
+    response_time_ms: number;
+    is_drifted: boolean;
 }
 export interface User {
     id: number;
@@ -94,6 +98,7 @@ export declare class BuildMeClient {
     getBuild(projectId: string, buildId: string): Promise<Build>;
     syncProject(projectId: string): Promise<unknown>;
     retriggerBuild(projectId: string, buildId: string): Promise<unknown>;
+    cancelBuild(projectId: string, buildId: string): Promise<unknown>;
     getVersion(): Promise<{
         version: string;
         git_commit: string;
