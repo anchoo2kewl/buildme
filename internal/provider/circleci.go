@@ -31,7 +31,7 @@ func (c *CircleCIProvider) FetchBuilds(ctx context.Context, cp *models.CIProvide
 	slug := circleSlug(cp)
 
 	// Fetch recent pipelines
-	url := fmt.Sprintf("https://circleci.com/api/v2/project/%s/pipeline?page-token=&branch=", slug)
+	url := fmt.Sprintf("https://circleci.com/api/v2/project/%s/pipeline", slug)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
