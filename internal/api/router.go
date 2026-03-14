@@ -177,12 +177,20 @@ func serveSPA(r chi.Router, distPath string) {
 
 		path := filepath.Join(absPath, r.URL.Path)
 		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			// Hashed filenames (build/, assets/) can be cached long-term.
+			// Non-hashed files (app.js, style.css) must revalidate.
+			if strings.HasPrefix(r.URL.Path, "/build/") || strings.HasPrefix(r.URL.Path, "/assets/") {
+				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			} else {
+				w.Header().Set("Cache-Control", "no-cache, must-revalidate")
+			}
 			fileServer.ServeHTTP(w, r)
 			return
 		}
 
 		indexPath := filepath.Join(absPath, "index.html")
 		if _, err := fs.Stat(os.DirFS(absPath), "index.html"); err == nil {
+			w.Header().Set("Cache-Control", "no-cache, must-revalidate")
 			http.ServeFile(w, r, indexPath)
 			return
 		}
