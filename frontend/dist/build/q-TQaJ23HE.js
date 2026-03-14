@@ -1,0 +1,1 @@
+import{v as o}from"./q-CDA5li_u.js";import{x as n}from"./q-CDA5li_u.js";import{g as s}from"./q-DDn01gZB.js";const e=async()=>{const[t]=o();try{t.value=await s("/invites")}catch{}};export{n as _hW,e as s_Jtz5ANunU1c};

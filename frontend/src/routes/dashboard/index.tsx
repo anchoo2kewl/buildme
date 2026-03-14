@@ -7,10 +7,11 @@ import type {
   DriftProject,
   Build,
   ProbesSummary,
+  ProviderType,
 } from "~/lib/types";
 import { parseMetadata } from "~/lib/types";
 import { EnvironmentDetail } from "~/components/environments/environment-detail";
-import { CIProviderIcon } from "~/components/shared/ci-provider-icon";
+import { CIProviderIcon, providerDisplayName } from "~/components/shared/ci-provider-icon";
 
 type EnvFilter = "all" | "production" | "staging" | "uat";
 
@@ -229,6 +230,14 @@ interface ProjectCardProps {
 const ProjectCard = component$<ProjectCardProps>(
   ({ dp, builds, envFilter, selectedEnv }) => {
     const meta = parseMetadata(dp.project);
+    // Unique CI providers from builds
+    const ciProviders = [
+      ...new Set(
+        builds
+          .map((b) => b.provider_type)
+          .filter((t): t is ProviderType => !!t),
+      ),
+    ];
     const envs = ENVS_ORDER.filter((env) => {
       if (envFilter !== "all" && env !== envFilter) return false;
       return dp.environments.some((e) => e.env === env);
@@ -262,6 +271,15 @@ const ProjectCard = component$<ProjectCardProps>(
             )}
           </div>
           <div class="flex items-center gap-2">
+            {ciProviders.map((pt) => (
+              <span
+                key={pt}
+                class="bm-tag inline-flex items-center gap-1 rounded bg-border/50 px-2 py-0.5 text-[11px] font-medium text-muted"
+                title={providerDisplayName(pt)}
+              >
+                <CIProviderIcon provider={pt} size={14} />
+              </span>
+            ))}
             {meta.mcp_url && (() => {
               let port = "";
               try {

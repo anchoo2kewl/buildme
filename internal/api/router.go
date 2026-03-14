@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
-	urlpath "path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -189,19 +188,16 @@ func serveSPA(r chi.Router, distPath string) {
 			return
 		}
 
-		// Walk up path to find nearest parent index.html
-		urlPath := r.URL.Path
-		for urlPath != "" && urlPath != "/" {
-			candidate := filepath.Join(absPath, urlPath, "index.html")
-			if _, err := os.Stat(candidate); err == nil {
-				w.Header().Set("Cache-Control", "no-cache, must-revalidate")
-				http.ServeFile(w, r, candidate)
-				return
-			}
-			urlPath = urlpath.Dir(urlPath)
+		// Check if exact path has an SSG'd index.html
+		candidate := filepath.Join(absPath, r.URL.Path, "index.html")
+		if _, err := os.Stat(candidate); err == nil {
+			w.Header().Set("Cache-Control", "no-cache, must-revalidate")
+			http.ServeFile(w, r, candidate)
+			return
 		}
 
-		// Final fallback to root index.html
+		// Fallback to root index.html — lets Qwik client-side router
+		// handle dynamic routes (e.g. /dashboard/projects/[projectId])
 		indexPath := filepath.Join(absPath, "index.html")
 		if _, err := os.Stat(indexPath); err == nil {
 			w.Header().Set("Cache-Control", "no-cache, must-revalidate")
