@@ -1,0 +1,1 @@
+import{v as r}from"./q-CDA5li_u.js";import{x as v}from"./q-CDA5li_u.js";import{g as t}from"./q-Oxr4VVlv.js";const m=async()=>{const[a,e,o]=r();try{e.value=await t("/admin/system-info")}catch(s){a.value=s.message}finally{o.value=!1}};export{v as _hW,m as s_y8DavhxfzzY};

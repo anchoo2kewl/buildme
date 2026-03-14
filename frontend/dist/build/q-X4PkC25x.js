@@ -1,0 +1,1 @@
+import{v as a}from"./q-CDA5li_u.js";import{x as t}from"./q-CDA5li_u.js";const i=({track:o})=>{const[s,r]=a();o(()=>s.user),o(()=>s.isLoading),!s.isLoading&&(!s.user||!s.user.is_super_admin)&&r("/dashboard")};export{t as _hW,i as s_F0VZeqQdBbg};
