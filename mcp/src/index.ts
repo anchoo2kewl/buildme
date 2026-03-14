@@ -459,7 +459,7 @@ app.get("/api/version", (_req, res) => {
 });
 
 // MCP endpoint — stateless: one transport per request
-app.post("/mcp", async (req, res) => {
+app.post("/", async (req, res) => {
   const apiKey = req.headers["x-api-key"] as string | undefined;
   if (!apiKey) {
     res.status(401).json({ error: "Missing X-API-Key header" });
@@ -534,11 +534,11 @@ app.post("/mcp", async (req, res) => {
   await transport.handleRequest(req, res, req.body);
 });
 
-app.get("/mcp", (_req, res) => {
+app.get("/", (_req, res) => {
   res.status(405).json({ error: "Method not allowed — stateless server, use POST" });
 });
 
-app.delete("/mcp", (_req, res) => {
+app.delete("/", (_req, res) => {
   res.status(405).json({ error: "Method not allowed — stateless server, use POST" });
 });
 
