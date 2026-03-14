@@ -17,8 +17,18 @@ func (c *CircleCIProvider) Type() models.ProviderType {
 	return models.ProviderCircleCI
 }
 
+func circleSlug(cp *models.CIProvider) string {
+	// Support both GitHub VCS slugs (gh/owner/repo) and CircleCI standalone
+	// projects (circleci/org_id/project_id). If RepoOwner looks like a UUID,
+	// use the circleci/ prefix; otherwise fall back to gh/.
+	if len(cp.RepoOwner) == 36 && cp.RepoOwner[8] == '-' {
+		return fmt.Sprintf("circleci/%s/%s", cp.RepoOwner, cp.RepoName)
+	}
+	return fmt.Sprintf("gh/%s/%s", cp.RepoOwner, cp.RepoName)
+}
+
 func (c *CircleCIProvider) FetchBuilds(ctx context.Context, cp *models.CIProvider) ([]models.Build, error) {
-	slug := fmt.Sprintf("gh/%s/%s", cp.RepoOwner, cp.RepoName)
+	slug := circleSlug(cp)
 
 	// Fetch recent pipelines
 	url := fmt.Sprintf("https://circleci.com/api/v2/project/%s/pipeline?page-token=&branch=", slug)
@@ -64,13 +74,13 @@ func (c *CircleCIProvider) FetchBuilds(ctx context.Context, cp *models.CIProvide
 				ProviderID:   cp.ID,
 				ExternalID:   wf.ID,
 				Status:       NormalizeCircleCIStatus(wf.Status),
-				Branch:       pipe.Vcs.Branch,
-				CommitSHA:    pipe.Vcs.Revision,
-				CommitMessage: pipe.Vcs.Commit.Subject,
-				CommitAuthor: pipe.Vcs.Commit.Author.Name,
+				Branch:       pipe.branch(),
+				CommitSHA:    pipe.revision(),
+				CommitMessage: pipe.commitSubject(),
+				CommitAuthor: pipe.commitAuthor(),
 				Trigger:      pipe.Trigger.Type,
 				WorkflowName: wf.Name,
-				ProviderURL:  fmt.Sprintf("https://app.circleci.com/pipelines/%s/%s/%s/%d/workflows/%s", "gh", cp.RepoOwner, cp.RepoName, pipe.Number, wf.ID),
+				ProviderURL:  fmt.Sprintf("https://app.circleci.com/pipelines/%s/%d/workflows/%s", slug, pipe.Number, wf.ID),
 			}
 
 			if !wf.CreatedAt.IsZero() {
@@ -106,6 +116,11 @@ func (c *CircleCIProvider) fetchWorkflows(ctx context.Context, token, pipelineID
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("circleci workflows API %d: %s", resp.StatusCode, body)
+	}
 
 	var result struct {
 		Items []circleWorkflow `json:"items"`
@@ -178,7 +193,8 @@ func (c *CircleCIProvider) VerifyWebhook(r *http.Request, secret string) bool {
 type circlePipeline struct {
 	ID     string `json:"id"`
 	Number int    `json:"number"`
-	Vcs    struct {
+	// VCS slug format (gh/owner/repo projects)
+	Vcs struct {
 		Branch   string `json:"branch"`
 		Revision string `json:"revision"`
 		Commit   struct {
@@ -188,9 +204,57 @@ type circlePipeline struct {
 			} `json:"author"`
 		} `json:"commit"`
 	} `json:"vcs"`
+	// Standalone project format (circleci/org/project)
+	TriggerParams struct {
+		Git struct {
+			Branch        string `json:"branch"`
+			CheckoutSHA   string `json:"checkout_sha"`
+			CommitMessage string `json:"commit_message"`
+			CommitAuthor  string `json:"commit_author_name"`
+			RepoOwner     string `json:"repo_owner"`
+			RepoName      string `json:"repo_name"`
+		} `json:"git"`
+	} `json:"trigger_parameters"`
 	Trigger struct {
 		Type string `json:"type"`
 	} `json:"trigger"`
+}
+
+func (p *circlePipeline) branch() string {
+	if p.Vcs.Branch != "" {
+		return p.Vcs.Branch
+	}
+	return p.TriggerParams.Git.Branch
+}
+
+func (p *circlePipeline) revision() string {
+	if p.Vcs.Revision != "" {
+		return p.Vcs.Revision
+	}
+	return p.TriggerParams.Git.CheckoutSHA
+}
+
+func (p *circlePipeline) commitSubject() string {
+	if p.Vcs.Commit.Subject != "" {
+		return p.Vcs.Commit.Subject
+	}
+	msg := p.TriggerParams.Git.CommitMessage
+	// Take first line as subject
+	if i := len(msg); i > 0 {
+		for j := 0; j < i; j++ {
+			if msg[j] == '\n' {
+				return msg[:j]
+			}
+		}
+	}
+	return msg
+}
+
+func (p *circlePipeline) commitAuthor() string {
+	if p.Vcs.Commit.Author.Name != "" {
+		return p.Vcs.Commit.Author.Name
+	}
+	return p.TriggerParams.Git.CommitAuthor
 }
 
 type circleWorkflow struct {
@@ -215,6 +279,11 @@ func (c *CircleCIProvider) FetchJobs(ctx context.Context, token, workflowID stri
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("circleci jobs API %d: %s", resp.StatusCode, body)
+	}
 
 	var result struct {
 		Items []struct {
