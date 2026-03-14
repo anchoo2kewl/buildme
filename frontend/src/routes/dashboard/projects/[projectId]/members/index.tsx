@@ -1,5 +1,9 @@
 import { component$, useSignal, useVisibleTask$ } from "@builder.io/qwik";
-import { useLocation } from "@builder.io/qwik-city";
+import { useLocation, type StaticGenerateHandler } from "@builder.io/qwik-city";
+
+export const onStaticGenerate: StaticGenerateHandler = async () => {
+  return { params: [{ projectId: "_" }] };
+};
 import { get, post, del } from "~/lib/api";
 import type { ProjectMember } from "~/lib/types";
 import { Avatar } from "~/components/shared/avatar";

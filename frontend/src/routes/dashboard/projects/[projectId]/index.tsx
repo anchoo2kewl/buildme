@@ -4,7 +4,11 @@ import {
   useVisibleTask$,
   useContext,
 } from "@builder.io/qwik";
-import { useLocation } from "@builder.io/qwik-city";
+import { useLocation, type StaticGenerateHandler } from "@builder.io/qwik-city";
+
+export const onStaticGenerate: StaticGenerateHandler = async () => {
+  return { params: [{ projectId: "_" }] };
+};
 import { get } from "~/lib/api";
 import type { Build, Project } from "~/lib/types";
 import { BuildCard } from "~/components/builds/build-card";
