@@ -784,3 +784,47 @@ func (s *SQLiteStore) GetSettings(ctx context.Context, prefix string) (map[strin
 	}
 	return settings, rows.Err()
 }
+
+// --- Admin ---
+
+func (s *SQLiteStore) ListAllUsers(ctx context.Context) ([]models.User, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, email, password_hash, github_id, github_login, display_name, avatar_url, is_super_admin, invites_remaining, created_at, updated_at
+		 FROM users ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []models.User
+	for rows.Next() {
+		var u models.User
+		if err := rows.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.GitHubID, &u.GitHubLogin,
+			&u.DisplayName, &u.AvatarURL, &u.IsSuperAdmin, &u.InvitesRemaining, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+	return users, rows.Err()
+}
+
+func (s *SQLiteStore) SetUserSuperAdmin(ctx context.Context, userID int64, isSuperAdmin bool) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE users SET is_super_admin = ?, updated_at = datetime('now') WHERE id = ?`,
+		isSuperAdmin, userID)
+	return err
+}
+
+func (s *SQLiteStore) GetSystemCounts(ctx context.Context) (int, int, int, error) {
+	var users, projects, builds int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&users); err != nil {
+		return 0, 0, 0, err
+	}
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects`).Scan(&projects); err != nil {
+		return 0, 0, 0, err
+	}
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM builds`).Scan(&builds); err != nil {
+		return 0, 0, 0, err
+	}
+	return users, projects, builds, nil
+}

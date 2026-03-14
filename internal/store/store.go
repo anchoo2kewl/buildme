@@ -87,4 +87,9 @@ type Store interface {
 	GetSetting(ctx context.Context, key string) (string, error)
 	SetSetting(ctx context.Context, key string, value string) error
 	GetSettings(ctx context.Context, prefix string) (map[string]string, error)
+
+	// Admin
+	ListAllUsers(ctx context.Context) ([]models.User, error)
+	SetUserSuperAdmin(ctx context.Context, userID int64, isSuperAdmin bool) error
+	GetSystemCounts(ctx context.Context) (users int, projects int, builds int, err error)
 }

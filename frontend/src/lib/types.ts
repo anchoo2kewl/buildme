@@ -34,6 +34,15 @@ export interface Invite {
   created_at: string;
 }
 
+export interface APIKey {
+  id: number;
+  name: string;
+  key?: string;
+  key_prefix: string;
+  created_at: string;
+  expires_at?: string;
+}
+
 export interface ProjectMetadata {
   deployment_type?: string;
   tech_stack?: string[];

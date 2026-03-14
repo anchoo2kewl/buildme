@@ -3,9 +3,12 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/anchoo2kewl/buildme/internal/notify"
 	"github.com/anchoo2kewl/buildme/internal/store"
+	"github.com/anchoo2kewl/buildme/internal/version"
+	"github.com/go-chi/chi/v5"
 )
 
 type AdminHandler struct {
@@ -117,4 +120,106 @@ func (h *AdminHandler) TestEmail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonResp(w, http.StatusOK, map[string]string{"message": "test email sent"})
+}
+
+func (h *AdminHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
+	user := UserFromCtx(r.Context())
+	if user == nil || !user.IsSuperAdmin {
+		jsonError(w, "admin access required", http.StatusForbidden)
+		return
+	}
+
+	users, err := h.store.ListAllUsers(r.Context())
+	if err != nil {
+		jsonError(w, "failed to list users", http.StatusInternalServerError)
+		return
+	}
+
+	// Strip password hashes from response
+	type userResp struct {
+		ID               int64  `json:"id"`
+		Email            string `json:"email"`
+		GitHubLogin      string `json:"github_login,omitempty"`
+		DisplayName      string `json:"display_name"`
+		AvatarURL        string `json:"avatar_url,omitempty"`
+		IsSuperAdmin     bool   `json:"is_super_admin"`
+		InvitesRemaining int    `json:"invites_remaining"`
+		CreatedAt        string `json:"created_at"`
+	}
+
+	resp := make([]userResp, len(users))
+	for i, u := range users {
+		resp[i] = userResp{
+			ID:               u.ID,
+			Email:            u.Email,
+			GitHubLogin:      u.GitHubLogin,
+			DisplayName:      u.DisplayName,
+			AvatarURL:        u.AvatarURL,
+			IsSuperAdmin:     u.IsSuperAdmin,
+			InvitesRemaining: u.InvitesRemaining,
+			CreatedAt:        u.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		}
+	}
+	jsonResp(w, http.StatusOK, resp)
+}
+
+func (h *AdminHandler) ToggleSuperAdmin(w http.ResponseWriter, r *http.Request) {
+	user := UserFromCtx(r.Context())
+	if user == nil || !user.IsSuperAdmin {
+		jsonError(w, "admin access required", http.StatusForbidden)
+		return
+	}
+
+	targetID, err := strconv.ParseInt(chi.URLParam(r, "userId"), 10, 64)
+	if err != nil {
+		jsonError(w, "invalid user id", http.StatusBadRequest)
+		return
+	}
+
+	if targetID == user.ID {
+		jsonError(w, "cannot change your own super admin status", http.StatusBadRequest)
+		return
+	}
+
+	target, err := h.store.GetUserByID(r.Context(), targetID)
+	if err != nil || target == nil {
+		jsonError(w, "user not found", http.StatusNotFound)
+		return
+	}
+
+	newStatus := !target.IsSuperAdmin
+	if err := h.store.SetUserSuperAdmin(r.Context(), targetID, newStatus); err != nil {
+		jsonError(w, "failed to update user", http.StatusInternalServerError)
+		return
+	}
+
+	jsonResp(w, http.StatusOK, map[string]any{
+		"id":             targetID,
+		"is_super_admin": newStatus,
+	})
+}
+
+func (h *AdminHandler) GetSystemInfo(w http.ResponseWriter, r *http.Request) {
+	user := UserFromCtx(r.Context())
+	if user == nil || !user.IsSuperAdmin {
+		jsonError(w, "admin access required", http.StatusForbidden)
+		return
+	}
+
+	v := version.Get()
+	users, projects, builds, err := h.store.GetSystemCounts(r.Context())
+	if err != nil {
+		jsonError(w, "failed to get system info", http.StatusInternalServerError)
+		return
+	}
+
+	jsonResp(w, http.StatusOK, map[string]any{
+		"version":        v.Version,
+		"git_commit":     v.GitCommit,
+		"build_time":     v.BuildTime,
+		"db_type":        "sqlite",
+		"user_count":     users,
+		"project_count":  projects,
+		"build_count":    builds,
+	})
 }

@@ -1,5 +1,6 @@
-import { component$ } from "@builder.io/qwik";
+import { component$, useContext } from "@builder.io/qwik";
 import { useLocation } from "@builder.io/qwik-city";
+import { AuthContext } from "~/context/auth-context";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" },
@@ -9,6 +10,7 @@ const navItems = [
 
 export const Sidebar = component$(() => {
   const loc = useLocation();
+  const auth = useContext(AuthContext);
 
   return (
     <nav class="w-56 border-r border-border bg-elevated">
@@ -41,6 +43,28 @@ export const Sidebar = component$(() => {
             </a>
           );
         })}
+
+        {auth.user?.is_super_admin && (
+          <a
+            href="/dashboard/admin"
+            class={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
+              loc.url.pathname.startsWith("/dashboard/admin")
+                ? "bg-accent/10 text-accent"
+                : "text-muted hover:bg-surface hover:text-text"
+            }`}
+          >
+            <svg
+              class="h-5 w-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="1.5"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+            </svg>
+            Admin
+          </a>
+        )}
       </div>
     </nav>
   );

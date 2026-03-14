@@ -90,6 +90,9 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 		r.Get("/api/admin/email-settings", adminH.GetEmailSettings)
 		r.Put("/api/admin/email-settings", adminH.UpdateEmailSettings)
 		r.Post("/api/admin/test-email", adminH.TestEmail)
+		r.Get("/api/admin/users", adminH.ListUsers)
+		r.Patch("/api/admin/users/{userId}/super-admin", adminH.ToggleSuperAdmin)
+		r.Get("/api/admin/system-info", adminH.GetSystemInfo)
 
 		// Projects (user-level)
 		r.Get("/api/projects", projectH.List)
