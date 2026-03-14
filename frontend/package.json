@@ -10,6 +10,7 @@
     "build.client": "vite build",
     "build.preview": "vite build --ssr src/entry.preview.tsx",
     "build.types": "tsc --incremental --noEmit",
+    "build.server": "vite build -c adapters/static/vite.config.ts",
     "deploy": "echo 'Run after build to deploy static files'"
   },
   "devDependencies": {

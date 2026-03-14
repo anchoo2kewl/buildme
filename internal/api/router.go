@@ -188,8 +188,17 @@ func serveSPA(r chi.Router, distPath string) {
 			return
 		}
 
+		// Try route-specific index.html (Qwik City SSG generates per-route HTML)
+		routeIndex := filepath.Join(absPath, r.URL.Path, "index.html")
+		if _, err := os.Stat(routeIndex); err == nil {
+			w.Header().Set("Cache-Control", "no-cache, must-revalidate")
+			http.ServeFile(w, r, routeIndex)
+			return
+		}
+
+		// Fallback to root index.html (SPA catch-all)
 		indexPath := filepath.Join(absPath, "index.html")
-		if _, err := fs.Stat(os.DirFS(absPath), "index.html"); err == nil {
+		if _, err := os.Stat(indexPath); err == nil {
 			w.Header().Set("Cache-Control", "no-cache, must-revalidate")
 			http.ServeFile(w, r, indexPath)
 			return
