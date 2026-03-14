@@ -1,7 +1,8 @@
 import { component$, useSignal, useVisibleTask$ } from "@builder.io/qwik";
 import { useLocation } from "@builder.io/qwik-city";
 import { get, post, put, del } from "~/lib/api";
-import type { CIProvider, Project } from "~/lib/types";
+import type { CIProvider, Project, ProjectMetadata } from "~/lib/types";
+import { parseMetadata } from "~/lib/types";
 import { ProviderForm } from "~/components/projects/provider-form";
 
 export default component$(() => {
@@ -23,6 +24,16 @@ export default component$(() => {
   const versionField = useSignal("git_commit");
   const healthPath = useSignal("/health");
 
+  // Metadata
+  const metaSaving = useSignal(false);
+  const metaSuccess = useSignal(false);
+  const metaError = useSignal("");
+  const deploymentType = useSignal("");
+  const techStack = useSignal("");
+  const portsProd = useSignal("");
+  const portsStaging = useSignal("");
+  const portsUat = useSignal("");
+
   useVisibleTask$(async () => {
     try {
       const [p, provs] = await Promise.all([
@@ -37,6 +48,12 @@ export default component$(() => {
       versionPath.value = p.version_path || "/api/version";
       versionField.value = p.version_field || "git_commit";
       healthPath.value = p.health_path || "/health";
+      const meta = parseMetadata(p);
+      deploymentType.value = meta.deployment_type || "";
+      techStack.value = (meta.tech_stack || []).join(", ");
+      portsProd.value = (meta.ports?.production || []).join(", ");
+      portsStaging.value = (meta.ports?.staging || []).join(", ");
+      portsUat.value = (meta.ports?.uat || []).join(", ");
     } catch {
       // ignore
     }
@@ -173,6 +190,139 @@ export default component$(() => {
                 class="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
               >
                 {envSaving.value ? "Saving..." : "Save Environment Settings"}
+              </button>
+            </div>
+          </form>
+        </section>
+
+        {/* Project Metadata */}
+        <section>
+          <h2 class="mb-4 text-lg font-semibold text-text">
+            Project Metadata
+          </h2>
+          <p class="mb-4 text-sm text-muted">
+            Configure deployment type, tech stack, and ports shown on the dashboard.
+          </p>
+
+          {metaError.value && (
+            <div class="mb-4 rounded-lg bg-failure/20 px-4 py-2 text-sm text-failure">
+              {metaError.value}
+            </div>
+          )}
+          {metaSuccess.value && (
+            <div class="mb-4 rounded-lg bg-success/20 px-4 py-2 text-sm text-success">
+              Metadata saved.
+            </div>
+          )}
+
+          <form
+            preventdefault:submit
+            onSubmit$={async () => {
+              metaSaving.value = true;
+              metaError.value = "";
+              metaSuccess.value = false;
+              try {
+                const parsePorts = (s: string): number[] =>
+                  s
+                    .split(",")
+                    .map((v) => parseInt(v.trim(), 10))
+                    .filter((n) => !isNaN(n));
+                const meta: ProjectMetadata = {};
+                if (deploymentType.value) meta.deployment_type = deploymentType.value;
+                if (techStack.value) meta.tech_stack = techStack.value.split(",").map((s) => s.trim()).filter(Boolean);
+                const ports: Record<string, number[]> = {};
+                if (portsProd.value) ports.production = parsePorts(portsProd.value);
+                if (portsStaging.value) ports.staging = parsePorts(portsStaging.value);
+                if (portsUat.value) ports.uat = parsePorts(portsUat.value);
+                if (Object.keys(ports).length > 0) meta.ports = ports;
+
+                const updated = await put<Project>(`/projects/${projectId}`, {
+                  metadata: JSON.stringify(meta),
+                });
+                project.value = updated;
+                metaSuccess.value = true;
+                setTimeout(() => (metaSuccess.value = false), 3000);
+              } catch (e: any) {
+                metaError.value = e.message;
+              } finally {
+                metaSaving.value = false;
+              }
+            }}
+            class="space-y-4 rounded-lg border border-border bg-elevated p-4"
+          >
+            <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div>
+                <label class="block text-xs font-medium text-muted">
+                  Deployment Type
+                </label>
+                <select
+                  bind:value={deploymentType}
+                  class="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text focus:border-accent focus:outline-none"
+                >
+                  <option value="">None</option>
+                  <option value="blue-green">Blue-Green</option>
+                  <option value="rolling">Rolling</option>
+                  <option value="canary">Canary</option>
+                  <option value="direct">Direct</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-muted">
+                  Tech Stack
+                </label>
+                <input
+                  type="text"
+                  bind:value={techStack}
+                  placeholder="go, react, typescript"
+                  class="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted focus:border-accent focus:outline-none"
+                />
+                <span class="text-[11px] text-muted">Comma-separated</span>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div>
+                <label class="block text-xs font-medium text-muted">
+                  Production Ports
+                </label>
+                <input
+                  type="text"
+                  bind:value={portsProd}
+                  placeholder="8092, 8094"
+                  class="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted focus:border-accent focus:outline-none"
+                />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-muted">
+                  Staging Ports
+                </label>
+                <input
+                  type="text"
+                  bind:value={portsStaging}
+                  placeholder="9090"
+                  class="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted focus:border-accent focus:outline-none"
+                />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-muted">
+                  UAT Ports
+                </label>
+                <input
+                  type="text"
+                  bind:value={portsUat}
+                  placeholder="8084"
+                  class="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted focus:border-accent focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div class="flex justify-end">
+              <button
+                type="submit"
+                disabled={metaSaving.value}
+                class="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+              >
+                {metaSaving.value ? "Saving..." : "Save Metadata"}
               </button>
             </div>
           </form>

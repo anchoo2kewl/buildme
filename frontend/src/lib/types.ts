@@ -23,6 +23,12 @@ export interface User {
   updated_at: string;
 }
 
+export interface ProjectMetadata {
+  deployment_type?: string;
+  tech_stack?: string[];
+  ports?: Record<string, number[]>;
+}
+
 export interface Project {
   id: number;
   name: string;
@@ -34,8 +40,18 @@ export interface Project {
   version_path?: string;
   version_field?: string;
   health_path?: string;
+  metadata?: string;
   created_at: string;
   updated_at: string;
+}
+
+export function parseMetadata(p: Project): ProjectMetadata {
+  if (!p.metadata || p.metadata === "{}") return {};
+  try {
+    return JSON.parse(p.metadata);
+  } catch {
+    return {};
+  }
 }
 
 export interface ProjectMember {
@@ -123,6 +139,20 @@ export interface EnvironmentStatus {
   error?: string;
 }
 
+export interface ProbeRegion {
+  name: string;
+  slug: string;
+  connected: boolean;
+  probe_version?: string;
+  uptime_seconds?: number;
+}
+
+export interface ProbesSummary {
+  total: number;
+  connected: number;
+  regions: ProbeRegion[];
+}
+
 export interface DriftProject {
   project: Project;
   environments: EnvironmentStatus[];
@@ -130,4 +160,9 @@ export interface DriftProject {
 
 export interface DriftDashboard {
   projects: DriftProject[];
+}
+
+export interface DashboardEntry {
+  project: Project;
+  builds: Build[];
 }

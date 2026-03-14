@@ -30,3 +30,40 @@ body {
   background: var(--color-border);
   border-radius: 4px;
 }
+
+/* ─── Project Cards ─────────────────── */
+
+.bm-card {
+  transition: border-color 0.15s ease;
+}
+
+.bm-card:hover {
+  border-color: color-mix(in srgb, var(--color-accent) 30%, var(--color-border));
+}
+
+.bm-tag {
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+.bm-env-col {
+  cursor: pointer;
+  min-width: 0;
+}
+
+/* Mobile: stack environment columns */
+@media (max-width: 640px) {
+  .bm-env-grid {
+    grid-template-columns: 1fr !important;
+    divide-x: none;
+  }
+
+  .bm-env-grid > * {
+    border-left: none !important;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .bm-env-grid > *:first-child {
+    border-top: none;
+  }
+}

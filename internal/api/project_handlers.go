@@ -46,6 +46,7 @@ func (h *ProjectHandler) Create(w http.ResponseWriter, r *http.Request) {
 		StagingURL    string `json:"staging_url"`
 		UATURL        string `json:"uat_url"`
 		ProductionURL string `json:"production_url"`
+		Metadata      string `json:"metadata"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "invalid request body", http.StatusBadRequest)
@@ -81,6 +82,7 @@ func (h *ProjectHandler) Create(w http.ResponseWriter, r *http.Request) {
 		StagingURL:    req.StagingURL,
 		UATURL:        req.UATURL,
 		ProductionURL: req.ProductionURL,
+		Metadata:      req.Metadata,
 	}
 	if err := h.store.CreateProject(r.Context(), project); err != nil {
 		jsonError(w, "failed to create project", http.StatusInternalServerError)
@@ -125,6 +127,7 @@ func (h *ProjectHandler) Update(w http.ResponseWriter, r *http.Request) {
 		VersionPath   *string `json:"version_path"`
 		VersionField  *string `json:"version_field"`
 		HealthPath    *string `json:"health_path"`
+		Metadata      *string `json:"metadata"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "invalid request body", http.StatusBadRequest)
@@ -155,6 +158,9 @@ func (h *ProjectHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.HealthPath != nil {
 		project.HealthPath = *req.HealthPath
+	}
+	if req.Metadata != nil {
+		project.Metadata = *req.Metadata
 	}
 
 	if err := h.store.UpdateProject(r.Context(), project); err != nil {

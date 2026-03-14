@@ -1,0 +1,1 @@
+import{v as a}from"./q-CDA5li_u.js";import{x as f}from"./q-CDA5li_u.js";import{g as r}from"./q-DDn01gZB.js";const c=async()=>{const[o,t]=a();try{t.value=await r("/projects")}catch{}o.value=!1};export{f as _hW,c as s_YHP90MyZ8PE};

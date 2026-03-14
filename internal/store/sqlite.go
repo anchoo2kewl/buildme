@@ -93,9 +93,12 @@ func (s *SQLiteStore) scanUser(row *sql.Row) (*models.User, error) {
 // --- Projects ---
 
 func (s *SQLiteStore) CreateProject(ctx context.Context, p *models.Project) error {
+	if p.Metadata == "" {
+		p.Metadata = "{}"
+	}
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO projects (name, slug, description, staging_url, uat_url, production_url, version_path, version_field, health_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.Name, p.Slug, p.Description, p.StagingURL, p.UATURL, p.ProductionURL, p.VersionPath, p.VersionField, p.HealthPath)
+		`INSERT INTO projects (name, slug, description, staging_url, uat_url, production_url, version_path, version_field, health_path, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.Name, p.Slug, p.Description, p.StagingURL, p.UATURL, p.ProductionURL, p.VersionPath, p.VersionField, p.HealthPath, p.Metadata)
 	if err != nil {
 		return err
 	}
@@ -106,8 +109,8 @@ func (s *SQLiteStore) CreateProject(ctx context.Context, p *models.Project) erro
 func (s *SQLiteStore) GetProjectByID(ctx context.Context, id int64) (*models.Project, error) {
 	p := &models.Project{}
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, name, slug, description, staging_url, uat_url, production_url, version_path, version_field, health_path, created_at, updated_at FROM projects WHERE id = ?`, id).
-		Scan(&p.ID, &p.Name, &p.Slug, &p.Description, &p.StagingURL, &p.UATURL, &p.ProductionURL, &p.VersionPath, &p.VersionField, &p.HealthPath, &p.CreatedAt, &p.UpdatedAt)
+		`SELECT id, name, slug, description, staging_url, uat_url, production_url, version_path, version_field, health_path, metadata, created_at, updated_at FROM projects WHERE id = ?`, id).
+		Scan(&p.ID, &p.Name, &p.Slug, &p.Description, &p.StagingURL, &p.UATURL, &p.ProductionURL, &p.VersionPath, &p.VersionField, &p.HealthPath, &p.Metadata, &p.CreatedAt, &p.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -117,8 +120,8 @@ func (s *SQLiteStore) GetProjectByID(ctx context.Context, id int64) (*models.Pro
 func (s *SQLiteStore) GetProjectBySlug(ctx context.Context, slug string) (*models.Project, error) {
 	p := &models.Project{}
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, name, slug, description, staging_url, uat_url, production_url, version_path, version_field, health_path, created_at, updated_at FROM projects WHERE slug = ?`, slug).
-		Scan(&p.ID, &p.Name, &p.Slug, &p.Description, &p.StagingURL, &p.UATURL, &p.ProductionURL, &p.VersionPath, &p.VersionField, &p.HealthPath, &p.CreatedAt, &p.UpdatedAt)
+		`SELECT id, name, slug, description, staging_url, uat_url, production_url, version_path, version_field, health_path, metadata, created_at, updated_at FROM projects WHERE slug = ?`, slug).
+		Scan(&p.ID, &p.Name, &p.Slug, &p.Description, &p.StagingURL, &p.UATURL, &p.ProductionURL, &p.VersionPath, &p.VersionField, &p.HealthPath, &p.Metadata, &p.CreatedAt, &p.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -126,9 +129,12 @@ func (s *SQLiteStore) GetProjectBySlug(ctx context.Context, slug string) (*model
 }
 
 func (s *SQLiteStore) UpdateProject(ctx context.Context, p *models.Project) error {
+	if p.Metadata == "" {
+		p.Metadata = "{}"
+	}
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE projects SET name=?, slug=?, description=?, staging_url=?, uat_url=?, production_url=?, version_path=?, version_field=?, health_path=?, updated_at=datetime('now') WHERE id=?`,
-		p.Name, p.Slug, p.Description, p.StagingURL, p.UATURL, p.ProductionURL, p.VersionPath, p.VersionField, p.HealthPath, p.ID)
+		`UPDATE projects SET name=?, slug=?, description=?, staging_url=?, uat_url=?, production_url=?, version_path=?, version_field=?, health_path=?, metadata=?, updated_at=datetime('now') WHERE id=?`,
+		p.Name, p.Slug, p.Description, p.StagingURL, p.UATURL, p.ProductionURL, p.VersionPath, p.VersionField, p.HealthPath, p.Metadata, p.ID)
 	return err
 }
 
@@ -139,7 +145,7 @@ func (s *SQLiteStore) DeleteProject(ctx context.Context, id int64) error {
 
 func (s *SQLiteStore) ListProjectsForUser(ctx context.Context, userID int64) ([]models.Project, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT p.id, p.name, p.slug, p.description, p.staging_url, p.uat_url, p.production_url, p.version_path, p.version_field, p.health_path, p.created_at, p.updated_at
+		`SELECT p.id, p.name, p.slug, p.description, p.staging_url, p.uat_url, p.production_url, p.version_path, p.version_field, p.health_path, p.metadata, p.created_at, p.updated_at
 		 FROM projects p
 		 JOIN project_members pm ON pm.project_id = p.id
 		 WHERE pm.user_id = ?
@@ -152,7 +158,7 @@ func (s *SQLiteStore) ListProjectsForUser(ctx context.Context, userID int64) ([]
 	var projects []models.Project
 	for rows.Next() {
 		var p models.Project
-		if err := rows.Scan(&p.ID, &p.Name, &p.Slug, &p.Description, &p.StagingURL, &p.UATURL, &p.ProductionURL, &p.VersionPath, &p.VersionField, &p.HealthPath, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Slug, &p.Description, &p.StagingURL, &p.UATURL, &p.ProductionURL, &p.VersionPath, &p.VersionField, &p.HealthPath, &p.Metadata, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
 		projects = append(projects, p)

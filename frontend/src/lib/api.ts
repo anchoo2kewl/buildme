@@ -51,3 +51,6 @@ export const del = <T>(path: string) => api<T>(path, { method: "DELETE" });
 
 export const fetchDrift = () =>
   get<import("~/lib/types").DriftDashboard>("/drift");
+
+export const fetchDashboard = () =>
+  get<import("~/lib/types").DashboardEntry[]>("/dashboard");

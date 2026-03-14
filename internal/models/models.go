@@ -114,6 +114,7 @@ type Project struct {
 	VersionPath   string    `json:"version_path,omitempty"`
 	VersionField  string    `json:"version_field,omitempty"`
 	HealthPath    string    `json:"health_path,omitempty"`
+	Metadata      string    `json:"metadata,omitempty"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }

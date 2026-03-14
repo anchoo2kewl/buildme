@@ -1,1 +1,0 @@
-import{I as t,R as e}from"./q-CcP5yyxH.js";const a=l=>l.value?t("div",null,{class:"flex justify-between py-1 text-sm"},[t("span",null,{class:"text-muted"},e(n=>n.label,[l]),3,null),t("span",null,{class:e(n=>`text-text ${n.mono?"font-mono":""}`,[l])},l.value.length>30?l.value.substring(0,30)+"...":l.value,1,null)],1,"nM_26"):null;export{a as s_UDcfGW6F8lA};

@@ -1,0 +1,1 @@
+import{I as l,R as e,A as n,s as t}from"./q-CDA5li_u.js";const a=s=>l("div",null,{class:"mb-4"},[l("h3",null,{class:"mb-2 text-xs font-semibold uppercase tracking-wider text-muted"},e(r=>r.title,[s]),3,null),l("div",null,{class:"rounded-lg border border-border bg-surface p-3"},n(t,null,3,"nM_24"),1,null)],1,"nM_25");export{a as s_EyjYeDJrFZ0};
