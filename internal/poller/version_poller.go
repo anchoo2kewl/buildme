@@ -2,7 +2,9 @@ package poller
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -17,26 +19,31 @@ import (
 )
 
 const (
-	normalInterval = 5 * time.Minute
-	activeInterval = 30 * time.Second
-	pruneAge       = 7 * 24 * time.Hour
+	defaultVersionPollMin = 60 // minutes — overridable per project via metadata.version_poll_interval_m
+	activeInterval        = 5 * time.Minute
+	tickInterval          = 5 * time.Minute // how often the loop wakes to check
+	snapshotPruneAge      = 7 * 24 * time.Hour
+	metricPruneAge        = 24 * time.Hour
+	incidentPruneAge      = 7 * 24 * time.Hour
 )
 
 type VersionPoller struct {
-	store  store.Store
-	cfg    *config.Config
-	hub    *ws.Hub
-	client *http.Client
-	stop   chan struct{}
+	store    store.Store
+	cfg      *config.Config
+	hub      *ws.Hub
+	client   *http.Client
+	stop     chan struct{}
+	lastPoll map[string]time.Time // key: "projectID:env"
 }
 
 func NewVersionPoller(s store.Store, cfg *config.Config, hub *ws.Hub) *VersionPoller {
 	return &VersionPoller{
-		store:  s,
-		cfg:    cfg,
-		hub:    hub,
-		client: &http.Client{Timeout: 10 * time.Second},
-		stop:   make(chan struct{}),
+		store:    s,
+		cfg:      cfg,
+		hub:      hub,
+		client:   &http.Client{Timeout: 10 * time.Second},
+		stop:     make(chan struct{}),
+		lastPoll: make(map[string]time.Time),
 	}
 }
 
@@ -52,24 +59,26 @@ func (vp *VersionPoller) Run() {
 		case <-timer.C:
 			vp.tick()
 
-			// Daily pruning
+			// Pruning: snapshots daily, metrics every tick (24h), incidents daily (7d)
+			ctx := context.Background()
 			if time.Since(lastPrune) > 24*time.Hour {
-				cutoff := time.Now().Add(-pruneAge)
-				if err := vp.store.PruneVersionSnapshots(context.Background(), cutoff); err != nil {
-					slog.Error("version-poller: prune failed", "error", err)
-				} else {
-					slog.Info("version-poller: pruned old snapshots", "older_than", cutoff.Format(time.RFC3339))
+				cutoff := time.Now().Add(-snapshotPruneAge)
+				if err := vp.store.PruneVersionSnapshots(ctx, cutoff); err != nil {
+					slog.Error("version-poller: prune snapshots failed", "error", err)
+				}
+				incidentCutoff := time.Now().Add(-incidentPruneAge)
+				if err := vp.store.PruneResourceIncidents(ctx, incidentCutoff); err != nil {
+					slog.Error("version-poller: prune incidents failed", "error", err)
 				}
 				lastPrune = time.Now()
 			}
-
-			// Smart interval: faster when builds are active
-			interval := normalInterval
-			active, err := vp.store.HasActiveBuilds(context.Background())
-			if err == nil && active {
-				interval = activeInterval
+			// Metric points: prune every tick (cheap indexed delete, 24h retention)
+			metricCutoff := time.Now().Add(-metricPruneAge)
+			if err := vp.store.PruneMetricPoints(ctx, metricCutoff); err != nil {
+				slog.Error("version-poller: prune metrics failed", "error", err)
 			}
-			timer.Reset(interval)
+
+			timer.Reset(tickInterval)
 
 		case <-vp.stop:
 			return
@@ -79,6 +88,21 @@ func (vp *VersionPoller) Run() {
 
 func (vp *VersionPoller) Stop() {
 	close(vp.stop)
+}
+
+// projectPollInterval returns the configured version poll interval for a project,
+// reading metadata.version_poll_interval_m. Falls back to defaultVersionPollMin.
+func projectPollInterval(p models.Project) time.Duration {
+	if p.Metadata == "" || p.Metadata == "{}" {
+		return time.Duration(defaultVersionPollMin) * time.Minute
+	}
+	var meta struct {
+		VersionPollIntervalM int `json:"version_poll_interval_m"`
+	}
+	if err := json.Unmarshal([]byte(p.Metadata), &meta); err != nil || meta.VersionPollIntervalM <= 0 {
+		return time.Duration(defaultVersionPollMin) * time.Minute
+	}
+	return time.Duration(meta.VersionPollIntervalM) * time.Minute
 }
 
 func (vp *VersionPoller) tick() {
@@ -95,17 +119,24 @@ func (vp *VersionPoller) tick() {
 		baseURL string
 	}
 
+	now := time.Now()
 	var checks []envCheck
 	for _, p := range projects {
+		interval := projectPollInterval(p)
 		envURLs := map[string]string{
 			"staging":    p.StagingURL,
 			"uat":        p.UATURL,
 			"production": p.ProductionURL,
 		}
 		for env, url := range envURLs {
-			if url != "" {
-				checks = append(checks, envCheck{project: p, env: env, baseURL: url})
+			if url == "" {
+				continue
 			}
+			key := fmt.Sprintf("%d:%s", p.ID, env)
+			if last, ok := vp.lastPoll[key]; ok && now.Sub(last) < interval {
+				continue // skip, not yet due
+			}
+			checks = append(checks, envCheck{project: p, env: env, baseURL: url})
 		}
 	}
 
@@ -124,6 +155,8 @@ func (vp *VersionPoller) tick() {
 			defer func() { <-sem }()
 
 			vp.checkEnv(ctx, c.project, c.env, c.baseURL)
+			key := fmt.Sprintf("%d:%s", c.project.ID, c.env)
+			vp.lastPoll[key] = time.Now()
 		}(chk)
 	}
 	wg.Wait()
