@@ -154,11 +154,61 @@ func (vp *VersionPoller) tick() {
 			defer func() { <-sem }()
 
 			vp.checkEnv(ctx, c.project, c.env, c.baseURL)
+
+			// Check MCP health if configured
+			vp.checkMCPEnv(ctx, c.project, c.env, c.baseURL)
+
 			key := fmt.Sprintf("%d:%s", c.project.ID, c.env)
 			vp.lastPoll[key] = time.Now()
 		}(chk)
 	}
 	wg.Wait()
+}
+
+// checkMCPEnv checks the MCP server health for an environment if configured.
+func (vp *VersionPoller) checkMCPEnv(ctx context.Context, project models.Project, env, baseURL string) {
+	if project.Metadata == "" || project.Metadata == "{}" {
+		return
+	}
+
+	var meta struct {
+		MCPURLs       map[string]string `json:"mcp_urls"`
+		MCPURL        string            `json:"mcp_url"`
+		MCPHealthPath string            `json:"mcp_health_path"`
+	}
+	if err := json.Unmarshal([]byte(project.Metadata), &meta); err != nil {
+		return
+	}
+
+	mcpURL := meta.MCPURLs[env]
+	// Fallback: legacy mcp_url applies to production
+	if mcpURL == "" && env == "production" && meta.MCPURL != "" {
+		mcpURL = meta.MCPURL
+	}
+	if mcpURL == "" {
+		return
+	}
+
+	healthPath := meta.MCPHealthPath
+	if healthPath == "" {
+		healthPath = "/health"
+	}
+
+	healthURL := mcpURL + healthPath
+	healthStatus, responseMS := vp.checkHealth(ctx, healthURL, project, baseURL)
+
+	snap := &models.VersionSnapshot{
+		ProjectID:      project.ID,
+		Env:            env,
+		VersionInfo:    "{}",
+		HealthStatus:   healthStatus,
+		ResponseTimeMS: responseMS,
+		Service:        "mcp",
+	}
+
+	if err := vp.store.CreateVersionSnapshot(ctx, snap); err != nil {
+		slog.Error("version-poller: save MCP snapshot", "error", err, "project", project.Name, "env", env)
+	}
 }
 
 func (vp *VersionPoller) checkEnv(ctx context.Context, project models.Project, env, baseURL string) {

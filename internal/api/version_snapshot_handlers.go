@@ -44,7 +44,7 @@ func (h *VersionSnapshotHandler) VersionOverview(w http.ResponseWriter, r *http.
 			var versionInfo map[string]interface{}
 			json.Unmarshal([]byte(snap.VersionInfo), &versionInfo)
 
-			entries = append(entries, models.VersionOverviewEntry{
+			entry := models.VersionOverviewEntry{
 				ProjectID:      p.ID,
 				ProjectName:    p.Name,
 				Env:            env,
@@ -53,7 +53,16 @@ func (h *VersionSnapshotHandler) VersionOverview(w http.ResponseWriter, r *http.
 				HealthStatus:   snap.HealthStatus,
 				ResponseTimeMS: snap.ResponseTimeMS,
 				CheckedAt:      snap.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
-			})
+			}
+
+			// Include MCP health if available
+			mcpSnap, _ := h.store.GetLatestServiceSnapshot(ctx, p.ID, env, "mcp")
+			if mcpSnap != nil {
+				entry.MCPHealthStatus = mcpSnap.HealthStatus
+				entry.MCPResponseTimeMS = mcpSnap.ResponseTimeMS
+			}
+
+			entries = append(entries, entry)
 		}
 	}
 

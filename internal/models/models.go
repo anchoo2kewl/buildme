@@ -253,18 +253,20 @@ type BuildFilter struct {
 
 // EnvironmentStatus holds the status of a single environment for a project.
 type EnvironmentStatus struct {
-	ProjectID      int64                  `json:"project_id"`
-	ProjectName    string                 `json:"project_name"`
-	Env            string                 `json:"env"`
-	BaseURL        string                 `json:"base_url"`
-	DeployedSHA    string                 `json:"deployed_sha"`
-	VersionInfo    map[string]interface{} `json:"version_info"`
-	HealthStatus   int                    `json:"health_status"`
-	ResponseTimeMS int64                  `json:"response_time_ms"`
-	BranchHeadSHA  string                 `json:"branch_head_sha,omitempty"`
-	IsDrifted      bool                   `json:"is_drifted"`
-	CheckedAt      string                 `json:"checked_at"`
-	Error          string                 `json:"error,omitempty"`
+	ProjectID         int64                  `json:"project_id"`
+	ProjectName       string                 `json:"project_name"`
+	Env               string                 `json:"env"`
+	BaseURL           string                 `json:"base_url"`
+	DeployedSHA       string                 `json:"deployed_sha"`
+	VersionInfo       map[string]interface{} `json:"version_info"`
+	HealthStatus      int                    `json:"health_status"`
+	ResponseTimeMS    int64                  `json:"response_time_ms"`
+	BranchHeadSHA     string                 `json:"branch_head_sha,omitempty"`
+	IsDrifted         bool                   `json:"is_drifted"`
+	CheckedAt         string                 `json:"checked_at"`
+	Error             string                 `json:"error,omitempty"`
+	MCPHealthStatus   int                    `json:"mcp_health_status,omitempty"`
+	MCPResponseTimeMS int64                  `json:"mcp_response_time_ms,omitempty"`
 }
 
 // DriftProject groups environment statuses for a single project.
@@ -287,6 +289,7 @@ type VersionSnapshot struct {
 	DeployedSHA    string    `json:"deployed_sha"`
 	HealthStatus   int       `json:"health_status"`
 	ResponseTimeMS int64     `json:"response_time_ms"`
+	Service        string    `json:"service"`
 	CreatedAt      time.Time `json:"created_at"`
 }
 
@@ -321,12 +324,14 @@ type ResourceIncident struct {
 
 // VersionOverviewEntry is the latest snapshot for a project+env, enriched with project name.
 type VersionOverviewEntry struct {
-	ProjectID      int64                  `json:"project_id"`
-	ProjectName    string                 `json:"project_name"`
-	Env            string                 `json:"env"`
-	VersionInfo    map[string]interface{} `json:"version_info"`
-	DeployedSHA    string                 `json:"deployed_sha"`
-	HealthStatus   int                    `json:"health_status"`
-	ResponseTimeMS int64                  `json:"response_time_ms"`
-	CheckedAt      string                 `json:"checked_at"`
+	ProjectID         int64                  `json:"project_id"`
+	ProjectName       string                 `json:"project_name"`
+	Env               string                 `json:"env"`
+	VersionInfo       map[string]interface{} `json:"version_info"`
+	DeployedSHA       string                 `json:"deployed_sha"`
+	HealthStatus      int                    `json:"health_status"`
+	ResponseTimeMS    int64                  `json:"response_time_ms"`
+	CheckedAt         string                 `json:"checked_at"`
+	MCPHealthStatus   int                    `json:"mcp_health_status,omitempty"`
+	MCPResponseTimeMS int64                  `json:"mcp_response_time_ms,omitempty"`
 }

@@ -104,6 +104,15 @@ export const EnvironmentDetail = component$<EnvironmentDetailProps>(
                 <span class="text-muted">Response Time</span>
                 <p class="font-mono text-text">{e.response_time_ms}ms</p>
               </div>
+              {runtime && (typeof runtime["hostname"] === "string" || runtime["port"] != null) && (
+                <div>
+                  <span class="text-muted">Container</span>
+                  <p class="font-mono text-text">
+                    {typeof runtime["hostname"] === "string" ? runtime["hostname"] as string : ""}
+                    {runtime["port"] != null ? `:${runtime["port"]}` : ""}
+                  </p>
+                </div>
+              )}
               <div>
                 <span class="text-muted">Deployed SHA</span>
                 <p class="font-mono text-text">
@@ -253,6 +262,24 @@ export const EnvironmentDetail = component$<EnvironmentDetailProps>(
                 />
                 <KV label="GC Pause Total" value={formatMs(resources["gc_pause_total_ms"])} />
                 <KV label="GC Last Pause" value={formatMs(resources["gc_last_pause_ms"])} />
+              </Section>
+            )}
+
+            {/* MCP Server section */}
+            {e.mcp_health_status != null && e.mcp_health_status > 0 && (
+              <Section title="MCP Server">
+                <div class="flex justify-between py-1 text-sm">
+                  <span class="text-muted">Health</span>
+                  <span class={`font-mono ${e.mcp_health_status === 200 ? "text-success" : "text-failure"}`}>
+                    {e.mcp_health_status}
+                  </span>
+                </div>
+                {e.mcp_response_time_ms != null && (
+                  <div class="flex justify-between py-1 text-sm">
+                    <span class="text-muted">Response Time</span>
+                    <span class="font-mono text-text">{e.mcp_response_time_ms}ms</span>
+                  </div>
+                )}
               </Section>
             )}
 

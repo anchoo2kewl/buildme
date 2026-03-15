@@ -91,6 +91,7 @@ type Store interface {
 	// Version Snapshots
 	CreateVersionSnapshot(ctx context.Context, snap *models.VersionSnapshot) error
 	GetLatestVersionSnapshot(ctx context.Context, projectID int64, env string) (*models.VersionSnapshot, error)
+	GetLatestServiceSnapshot(ctx context.Context, projectID int64, env, service string) (*models.VersionSnapshot, error)
 	ListVersionSnapshots(ctx context.Context, projectID int64, env string, limit int) ([]models.VersionSnapshot, error)
 	PruneVersionSnapshots(ctx context.Context, olderThan time.Time) error
 

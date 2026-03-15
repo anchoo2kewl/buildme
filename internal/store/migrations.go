@@ -185,6 +185,7 @@ var migrations = []string{
 		deployed_sha TEXT NOT NULL DEFAULT '',
 		health_status INTEGER NOT NULL DEFAULT 0,
 		response_time_ms INTEGER NOT NULL DEFAULT 0,
+		service TEXT NOT NULL DEFAULT 'main',
 		created_at DATETIME NOT NULL DEFAULT (datetime('now'))
 	)`,
 	"CREATE INDEX IF NOT EXISTS idx_vs_project_env ON version_snapshots(project_id, env, created_at DESC)",
@@ -214,4 +215,6 @@ var migrations = []string{
 		created_at DATETIME NOT NULL DEFAULT (datetime('now'))
 	)`,
 	"CREATE INDEX IF NOT EXISTS idx_ri_proj_env_time ON resource_incidents(project_id, env, created_at DESC)",
+	"ALTER TABLE version_snapshots ADD COLUMN service TEXT NOT NULL DEFAULT 'main'",
+	"CREATE INDEX IF NOT EXISTS idx_vs_proj_env_svc ON version_snapshots(project_id, env, service, created_at DESC)",
 }

@@ -92,6 +92,13 @@ const EnvCell = component$<{ env: EnvironmentStatus }>(({ env }) => {
         ? "bg-warning shadow-[0_0_6px_rgba(251,191,36,0.5)]"
         : "bg-failure shadow-[0_0_6px_rgba(248,113,113,0.5)]";
 
+  const runtime = env.version_info?.["runtime"] as Record<string, unknown> | undefined;
+  const hostname = typeof runtime?.["hostname"] === "string" ? runtime["hostname"] as string : "";
+  const port = runtime?.["port"] != null ? String(runtime["port"]) : "";
+  const containerLabel = hostname
+    ? `${hostname.length > 12 ? hostname.substring(0, 12) : hostname}${port ? ":" + port : ""}`
+    : "";
+
   return (
     <>
       <div class="flex items-center gap-2">
@@ -108,6 +115,9 @@ const EnvCell = component$<{ env: EnvironmentStatus }>(({ env }) => {
         )}
       </div>
       <span class="text-xs text-muted">{env.response_time_ms}ms</span>
+      {containerLabel && (
+        <span class="font-mono text-[10px] text-muted">{containerLabel}</span>
+      )}
     </>
   );
 });

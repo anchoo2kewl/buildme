@@ -48,6 +48,8 @@ export interface ProjectMetadata {
   tech_stack?: string[];
   ports?: Record<string, number[]>;
   mcp_url?: string;
+  mcp_urls?: Record<string, string>;
+  mcp_health_path?: string;
   custom_headers?: Record<string, Record<string, string>>;
 }
 
@@ -159,6 +161,8 @@ export interface EnvironmentStatus {
   is_drifted: boolean;
   checked_at: string;
   error?: string;
+  mcp_health_status?: number;
+  mcp_response_time_ms?: number;
 }
 
 export interface ProbeRegion {
@@ -193,6 +197,8 @@ export interface VersionOverviewEntry {
   health_status: number;
   response_time_ms: number;
   checked_at: string;
+  mcp_health_status?: number;
+  mcp_response_time_ms?: number;
 }
 
 export interface DashboardEntry {

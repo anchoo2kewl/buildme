@@ -950,6 +950,31 @@ func (h *SyncHandler) DriftCheck(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
+			// Check MCP health if configured
+			if c.project.Metadata != "" && c.project.Metadata != "{}" {
+				var meta struct {
+					MCPURLs       map[string]string `json:"mcp_urls"`
+					MCPURL        string            `json:"mcp_url"`
+					MCPHealthPath string            `json:"mcp_health_path"`
+				}
+				if json.Unmarshal([]byte(c.project.Metadata), &meta) == nil {
+					mcpURL := meta.MCPURLs[c.env]
+					if mcpURL == "" && c.env == "production" && meta.MCPURL != "" {
+						mcpURL = meta.MCPURL
+					}
+					if mcpURL != "" {
+						mcpHealthPath := meta.MCPHealthPath
+						if mcpHealthPath == "" {
+							mcpHealthPath = "/health"
+						}
+						mcpHealthURL := mcpURL + mcpHealthPath
+						mcpStatus, mcpMS := h.checkHealthTimed(r.Context(), mcpHealthURL, c.project, c.baseURL)
+						es.MCPHealthStatus = mcpStatus
+						es.MCPResponseTimeMS = mcpMS
+					}
+				}
+			}
+
 			results[idx] = es
 		}(i, chk)
 	}

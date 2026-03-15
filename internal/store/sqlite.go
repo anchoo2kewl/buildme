@@ -788,10 +788,13 @@ func (s *SQLiteStore) GetSettings(ctx context.Context, prefix string) (map[strin
 // --- Version Snapshots ---
 
 func (s *SQLiteStore) CreateVersionSnapshot(ctx context.Context, snap *models.VersionSnapshot) error {
+	if snap.Service == "" {
+		snap.Service = "main"
+	}
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO version_snapshots (project_id, env, version_info, deployed_sha, health_status, response_time_ms)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		snap.ProjectID, snap.Env, snap.VersionInfo, snap.DeployedSHA, snap.HealthStatus, snap.ResponseTimeMS)
+		`INSERT INTO version_snapshots (project_id, env, version_info, deployed_sha, health_status, response_time_ms, service)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		snap.ProjectID, snap.Env, snap.VersionInfo, snap.DeployedSHA, snap.HealthStatus, snap.ResponseTimeMS, snap.Service)
 	if err != nil {
 		return err
 	}
@@ -802,10 +805,23 @@ func (s *SQLiteStore) CreateVersionSnapshot(ctx context.Context, snap *models.Ve
 func (s *SQLiteStore) GetLatestVersionSnapshot(ctx context.Context, projectID int64, env string) (*models.VersionSnapshot, error) {
 	snap := &models.VersionSnapshot{}
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, project_id, env, version_info, deployed_sha, health_status, response_time_ms, created_at
-		 FROM version_snapshots WHERE project_id = ? AND env = ? ORDER BY created_at DESC LIMIT 1`,
+		`SELECT id, project_id, env, version_info, deployed_sha, health_status, response_time_ms, service, created_at
+		 FROM version_snapshots WHERE project_id = ? AND env = ? AND (service = 'main' OR service = '') ORDER BY created_at DESC LIMIT 1`,
 		projectID, env).
-		Scan(&snap.ID, &snap.ProjectID, &snap.Env, &snap.VersionInfo, &snap.DeployedSHA, &snap.HealthStatus, &snap.ResponseTimeMS, &snap.CreatedAt)
+		Scan(&snap.ID, &snap.ProjectID, &snap.Env, &snap.VersionInfo, &snap.DeployedSHA, &snap.HealthStatus, &snap.ResponseTimeMS, &snap.Service, &snap.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return snap, err
+}
+
+func (s *SQLiteStore) GetLatestServiceSnapshot(ctx context.Context, projectID int64, env, service string) (*models.VersionSnapshot, error) {
+	snap := &models.VersionSnapshot{}
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, project_id, env, version_info, deployed_sha, health_status, response_time_ms, service, created_at
+		 FROM version_snapshots WHERE project_id = ? AND env = ? AND service = ? ORDER BY created_at DESC LIMIT 1`,
+		projectID, env, service).
+		Scan(&snap.ID, &snap.ProjectID, &snap.Env, &snap.VersionInfo, &snap.DeployedSHA, &snap.HealthStatus, &snap.ResponseTimeMS, &snap.Service, &snap.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -817,8 +833,8 @@ func (s *SQLiteStore) ListVersionSnapshots(ctx context.Context, projectID int64,
 		limit = 50
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, env, version_info, deployed_sha, health_status, response_time_ms, created_at
-		 FROM version_snapshots WHERE project_id = ? AND env = ? ORDER BY created_at DESC LIMIT ?`,
+		`SELECT id, project_id, env, version_info, deployed_sha, health_status, response_time_ms, service, created_at
+		 FROM version_snapshots WHERE project_id = ? AND env = ? AND (service = 'main' OR service = '') ORDER BY created_at DESC LIMIT ?`,
 		projectID, env, limit)
 	if err != nil {
 		return nil, err
@@ -828,7 +844,7 @@ func (s *SQLiteStore) ListVersionSnapshots(ctx context.Context, projectID int64,
 	var snaps []models.VersionSnapshot
 	for rows.Next() {
 		var snap models.VersionSnapshot
-		if err := rows.Scan(&snap.ID, &snap.ProjectID, &snap.Env, &snap.VersionInfo, &snap.DeployedSHA, &snap.HealthStatus, &snap.ResponseTimeMS, &snap.CreatedAt); err != nil {
+		if err := rows.Scan(&snap.ID, &snap.ProjectID, &snap.Env, &snap.VersionInfo, &snap.DeployedSHA, &snap.HealthStatus, &snap.ResponseTimeMS, &snap.Service, &snap.CreatedAt); err != nil {
 			return nil, err
 		}
 		snaps = append(snaps, snap)

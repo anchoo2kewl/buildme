@@ -40,6 +40,10 @@ export default component$(() => {
   const portsStaging = useSignal("");
   const portsUat = useSignal("");
   const mcpUrl = useSignal("");
+  const mcpUrlStaging = useSignal("");
+  const mcpUrlUat = useSignal("");
+  const mcpUrlProd = useSignal("");
+  const mcpHealthPath = useSignal("/health");
 
   // Custom headers
   const headersSaving = useSignal(false);
@@ -78,6 +82,10 @@ export default component$(() => {
       portsStaging.value = (meta.ports?.staging || []).join(", ");
       portsUat.value = (meta.ports?.uat || []).join(", ");
       mcpUrl.value = meta.mcp_url || "";
+      mcpUrlStaging.value = meta.mcp_urls?.staging || "";
+      mcpUrlUat.value = meta.mcp_urls?.uat || "";
+      mcpUrlProd.value = meta.mcp_urls?.production || meta.mcp_url || "";
+      mcpHealthPath.value = meta.mcp_health_path || "/health";
       // Load custom headers
       if (meta.custom_headers) {
         for (const env of ["staging", "uat", "production"] as const) {
@@ -268,7 +276,15 @@ export default component$(() => {
                 if (portsStaging.value) ports.staging = parsePorts(portsStaging.value);
                 if (portsUat.value) ports.uat = parsePorts(portsUat.value);
                 if (Object.keys(ports).length > 0) meta.ports = ports;
-                if (mcpUrl.value) meta.mcp_url = mcpUrl.value;
+                // MCP URLs: per-environment
+                const mcpUrls: Record<string, string> = {};
+                if (mcpUrlStaging.value) mcpUrls.staging = mcpUrlStaging.value;
+                if (mcpUrlUat.value) mcpUrls.uat = mcpUrlUat.value;
+                if (mcpUrlProd.value) mcpUrls.production = mcpUrlProd.value;
+                if (Object.keys(mcpUrls).length > 0) meta.mcp_urls = mcpUrls;
+                // Keep legacy mcp_url for backward compat (set to production)
+                if (mcpUrlProd.value) meta.mcp_url = mcpUrlProd.value;
+                if (mcpHealthPath.value && mcpHealthPath.value !== "/health") meta.mcp_health_path = mcpHealthPath.value;
 
                 const updated = await put<Project>(`/projects/${projectId.value}`, {
                   metadata: JSON.stringify(meta),
@@ -351,18 +367,50 @@ export default component$(() => {
             </div>
 
             <div>
-              <label class="block text-xs font-medium text-muted">
-                MCP Server URL
+              <label class="block text-xs font-medium text-muted mb-2">
+                MCP Server URLs
               </label>
-              <input
-                type="url"
-                bind:value={mcpUrl}
-                placeholder="https://example.com:13426/mcp"
-                class="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted focus:border-accent focus:outline-none"
-              />
-              <span class="text-[11px] text-muted">
-                If this project has an MCP server, enter its URL. Shown as a badge on the dashboard.
+              <span class="text-[11px] text-muted block mb-3">
+                Per-environment MCP server URLs. Health-checked independently from the main service.
               </span>
+              <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div>
+                  <label class="block text-[11px] text-muted">Staging</label>
+                  <input
+                    type="url"
+                    bind:value={mcpUrlStaging}
+                    placeholder="https://staging.example.com:13426"
+                    class="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted focus:border-accent focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label class="block text-[11px] text-muted">UAT</label>
+                  <input
+                    type="url"
+                    bind:value={mcpUrlUat}
+                    placeholder="https://uat.example.com:13426"
+                    class="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted focus:border-accent focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label class="block text-[11px] text-muted">Production</label>
+                  <input
+                    type="url"
+                    bind:value={mcpUrlProd}
+                    placeholder="https://example.com:13426"
+                    class="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted focus:border-accent focus:outline-none"
+                  />
+                </div>
+              </div>
+              <div class="mt-3">
+                <label class="block text-[11px] text-muted">Health Path</label>
+                <input
+                  type="text"
+                  bind:value={mcpHealthPath}
+                  placeholder="/health"
+                  class="mt-1 w-full max-w-xs rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted focus:border-accent focus:outline-none"
+                />
+              </div>
             </div>
 
             <div class="flex justify-end">

@@ -348,21 +348,35 @@ const ProjectCard = component$<ProjectCardProps>(
                 class="bm-tag inline-flex items-center gap-1 rounded bg-border/50 px-2 py-0.5 text-[11px] font-medium text-muted"
                 title={providerDisplayName(pt)}
               >
-                <CIProviderIcon provider={pt} size={14} />
+                <CIProviderIcon provider={pt} size={22} />
               </span>
             ))}
-            {meta.mcp_url && (() => {
+            {(meta.mcp_url || (meta.mcp_urls && Object.keys(meta.mcp_urls).length > 0)) && (() => {
+              // Check if any environment has MCP health data
+              const mcpEnv = dp.environments.find((e) => e.mcp_health_status != null && e.mcp_health_status > 0);
+              const mcpHealthy = mcpEnv ? mcpEnv.mcp_health_status === 200 : null;
+              const colorClass = mcpHealthy === null
+                ? "bg-border/50 text-muted"
+                : mcpHealthy
+                  ? "bg-success/15 text-success"
+                  : "bg-failure/15 text-failure";
+              const dotClass = mcpHealthy === null
+                ? "bg-muted"
+                : mcpHealthy
+                  ? "bg-success"
+                  : "bg-failure";
               let port = "";
+              const mcpUrlDisplay = meta.mcp_url || Object.values(meta.mcp_urls || {})[0] || "";
               try {
-                const u = new URL(meta.mcp_url);
+                const u = new URL(mcpUrlDisplay);
                 if (u.port) port = `:${u.port}`;
               } catch { /* ignore */ }
               return (
                 <span
-                  class="bm-tag inline-flex items-center gap-1 rounded bg-success/15 px-2 py-0.5 text-[11px] font-medium text-success"
-                  title={meta.mcp_url}
+                  class={`bm-tag inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium ${colorClass}`}
+                  title={mcpUrlDisplay}
                 >
-                  <span class="inline-block h-1.5 w-1.5 rounded-full bg-success" />
+                  <span class={`inline-block h-1.5 w-1.5 rounded-full ${dotClass}`} />
                   MCP{port}
                 </span>
               );
@@ -468,15 +482,20 @@ const ProjectCard = component$<ProjectCardProps>(
                   ) : null}
                 </div>
 
-                {/* Port + runtime info */}
+                {/* Container:port + runtime info */}
                 <div class="flex flex-wrap items-center gap-x-2 text-[11px] text-muted">
-                  {ports && ports.length > 0 && (
+                  {typeof runtime?.["hostname"] === "string" && (
+                    <span class="font-mono">
+                      {(runtime["hostname"] as string).length > 12
+                        ? (runtime["hostname"] as string).substring(0, 12)
+                        : runtime["hostname"] as string}
+                      {runtime["port"] != null ? `:${runtime["port"]}` : ""}
+                    </span>
+                  )}
+                  {ports && ports.length > 0 && !runtime?.["port"] && (
                     <span>
                       {ports.map((p) => `:${p}`).join("/")}
                     </span>
-                  )}
-                  {typeof runtime?.["hostname"] === "string" && (
-                    <span>{String(runtime["hostname"])}</span>
                   )}
                   {typeof backend?.["platform"] === "string" && (
                     <span>{String(backend["platform"])}</span>
@@ -557,6 +576,13 @@ const ProjectCard = component$<ProjectCardProps>(
                       );
                     });
                   })()}
+                  {es.mcp_health_status != null && es.mcp_health_status > 0 && (
+                    <span class={`inline-flex items-center gap-1 ${es.mcp_health_status === 200 ? "" : "text-failure font-medium"}`}>
+                      <span class={`inline-block h-1.5 w-1.5 rounded-full ${es.mcp_health_status === 200 ? "bg-success" : "bg-failure"}`} />
+                      MCP
+                      {es.mcp_response_time_ms != null && <span>{es.mcp_response_time_ms}ms</span>}
+                    </span>
+                  )}
                 </div>
               </button>
             );
