@@ -1,1 +1,0 @@
-import{_ as i}from"./q-BAMLJNcO.js";import{o as n,b as a}from"./q-CDA5li_u.js";function m(r){if(!r)return"-";const o=Math.floor(r/1e3);if(o<60)return`${o}s`;const t=Math.floor(o/60),s=o%60;return`${t}m ${s}s`}const _=n(a(()=>i(()=>import("./q-D_J6BCQr.js"),[]),"s_IkdAazJn4xE"));export{_ as B,m as f};

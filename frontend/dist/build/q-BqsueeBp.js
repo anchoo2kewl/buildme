@@ -1,1 +1,0 @@
-import{I as r,p as s}from"./q-CeCxatqM.js";import{I as a,R as l}from"./q-CDA5li_u.js";const d=i=>r[i.provider]?a("img",{src:r[i.provider],alt:s(i.provider)},{width:l(e=>e.size??16,[i]),height:l(e=>e.size??16,[i]),class:l(e=>e.class,[i]),style:{display:"inline-block",verticalAlign:"middle"}},null,3,"xs_0"):null;export{d as s_PKq6yUceQo4};

@@ -1,1 +1,0 @@
-import{v as o}from"./q-CDA5li_u.js";import{x as c}from"./q-CDA5li_u.js";import{h as t}from"./q-CTvWHaav.js";const i=async()=>{const[a,e,s]=o();try{s.value=await t("/admin/users")}catch(r){a.value=r.message}finally{e.value=!1}};export{c as _hW,i as s_walpxgDyVpU};

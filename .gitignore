@@ -4,6 +4,8 @@ buildme-*
 *.db-wal
 *.db-shm
 .env
+frontend/dist/
+frontend/tmp/
 frontend/node_modules/
 mcp/node_modules/
 frontend/server/

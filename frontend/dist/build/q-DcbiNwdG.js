@@ -1,1 +1,0 @@
-import{v as e}from"./q-CDA5li_u.js";import{x as p}from"./q-CDA5li_u.js";import{h as t}from"./q-CTvWHaav.js";const r=async()=>{const[a,s]=e();try{s.value=await t("/invites")}catch{}try{a.value=await t("/api-keys")}catch{}};export{p as _hW,r as s_Jtz5ANunU1c};
