@@ -415,12 +415,14 @@ func (h *SyncHandler) ghGet(ctx context.Context, url string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-// branchHeadResult holds the head commit info including parent SHAs for merge-aware drift detection.
+// branchHeadResult holds the head commit info including parent and grandparent SHAs
+// for merge-aware drift detection (covers main→UAT→production promotion chains).
 type branchHeadResult struct {
-	SHA       string
-	Message   string
-	Author    string
-	ParentSHAs []string
+	SHA             string
+	Message         string
+	Author          string
+	ParentSHAs      []string
+	GrandparentSHAs []string
 }
 
 func (h *SyncHandler) fetchBranchHead(ctx context.Context, owner, repo, branch string) (sha, message, author string, err error) {
@@ -460,11 +462,35 @@ func (h *SyncHandler) fetchBranchHeadFull(ctx context.Context, owner, repo, bran
 	for _, p := range resp.Parents {
 		parents = append(parents, p.SHA)
 	}
+
+	// Fetch grandparent SHAs (1 level deeper) for merge-chain drift detection.
+	// This handles the main→UAT→production promotion pattern where the deployed
+	// SHA is 2 merge commits deep.
+	var grandparents []string
+	for _, p := range resp.Parents {
+		gpURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/commits/%s", owner, repo, p.SHA)
+		gpData, gpErr := h.ghGet(ctx, gpURL)
+		if gpErr != nil {
+			continue
+		}
+		var gpResp struct {
+			Parents []struct {
+				SHA string `json:"sha"`
+			} `json:"parents"`
+		}
+		if json.Unmarshal(gpData, &gpResp) == nil {
+			for _, gp := range gpResp.Parents {
+				grandparents = append(grandparents, gp.SHA)
+			}
+		}
+	}
+
 	return &branchHeadResult{
-		SHA:        resp.SHA,
-		Message:    msg,
-		Author:     resp.Commit.Author.Name,
-		ParentSHAs: parents,
+		SHA:             resp.SHA,
+		Message:         msg,
+		Author:          resp.Commit.Author.Name,
+		ParentSHAs:      parents,
+		GrandparentSHAs: grandparents,
 	}, nil
 }
 
@@ -778,10 +804,11 @@ func minLen(a, b int) int {
 }
 
 // shaMatchesHeadOrParent returns true if the deployed SHA matches the branch head
-// or any of its parent commits. This handles image-promotion workflows where the
-// deployed binary has the original build commit baked in, but the branch head is
-// a merge commit whose parent is that build commit.
-func shaMatchesHeadOrParent(deployedShort, headShort string, parentSHAs []string) bool {
+// or any of its parent commits (up to 2 levels deep). This handles image-promotion
+// workflows where the deployed binary has the original build commit baked in, but
+// the branch head is a merge commit whose parent (or grandparent) is that build commit.
+// Depth 2 covers the common main→UAT→production promotion pattern.
+func shaMatchesHeadOrParent(deployedShort, headShort string, parentSHAs []string, grandparentSHAs []string) bool {
 	if deployedShort == headShort {
 		return true
 	}
@@ -791,6 +818,16 @@ func shaMatchesHeadOrParent(deployedShort, headShort string, parentSHAs []string
 			parentShort = parentShort[:7]
 		}
 		if deployedShort == parentShort {
+			return true
+		}
+	}
+	// Check grandparents (handles main→uat→production merge chains)
+	for _, gp := range grandparentSHAs {
+		gpShort := gp
+		if len(gpShort) > 7 {
+			gpShort = gpShort[:7]
+		}
+		if deployedShort == gpShort {
 			return true
 		}
 	}
@@ -908,8 +945,8 @@ func (h *SyncHandler) DriftCheck(w http.ResponseWriter, r *http.Request) {
 						deployedShort = deployedShort[:7]
 					}
 					headShort := headResult.SHA[:minLen(len(headResult.SHA), 7)]
-					// Check if deployed SHA matches head or any parent (handles merge/promote flows)
-					es.IsDrifted = !shaMatchesHeadOrParent(deployedShort, headShort, headResult.ParentSHAs)
+					// Check if deployed SHA matches head, parent, or grandparent (handles merge/promote flows)
+					es.IsDrifted = !shaMatchesHeadOrParent(deployedShort, headShort, headResult.ParentSHAs, headResult.GrandparentSHAs)
 				}
 			}
 
