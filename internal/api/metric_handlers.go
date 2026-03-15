@@ -23,9 +23,9 @@ func (h *MetricHandler) ListMetrics(w http.ResponseWriter, r *http.Request) {
 		env = "production"
 	}
 
-	hours := 24
+	hours := 720 // default 30 days
 	if h := r.URL.Query().Get("hours"); h != "" {
-		if n, err := strconv.Atoi(h); err == nil && n > 0 && n <= 168 {
+		if n, err := strconv.Atoi(h); err == nil && n > 0 && n <= 720 {
 			hours = n
 		}
 	}

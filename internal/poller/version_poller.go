@@ -22,7 +22,7 @@ const (
 	activeInterval        = 5 * time.Minute
 	tickInterval          = 5 * time.Minute // how often the loop wakes to check
 	snapshotPruneAge      = 7 * 24 * time.Hour
-	metricPruneAge        = 24 * time.Hour
+	metricPruneAge        = 30 * 24 * time.Hour
 	incidentPruneAge      = 7 * 24 * time.Hour
 )
 

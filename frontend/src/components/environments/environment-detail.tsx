@@ -253,7 +253,7 @@ export const EnvironmentDetail = component$<EnvironmentDetailProps>(
               </Section>
             )}
 
-            {/* Metrics (24h) section — expandable */}
+            {/* Metrics (30d) section — expandable */}
             <MetricsPanel projectId={e.project_id} env={e.env} />
 
             {/* Probes section */}
@@ -366,7 +366,7 @@ const MetricsPanel = component$<MetricsPanelProps>(({ projectId, env }) => {
 
     loading.value = true;
     Promise.all([
-      fetchMetrics(projectId, env, 24).catch(() => []),
+      fetchMetrics(projectId, env, 720).catch(() => []),
       fetchProjectIncidents(projectId, 20).catch(() => []),
     ]).then(([m, inc]) => {
       metrics.value = m;
@@ -418,7 +418,7 @@ const MetricsPanel = component$<MetricsPanelProps>(({ projectId, env }) => {
         >
           &#9654;
         </span>
-        Metrics (24h)
+        Metrics (30d)
       </button>
 
       {expanded.value && (
