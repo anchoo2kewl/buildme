@@ -53,6 +53,7 @@ export const EnvironmentDetail = component$<EnvironmentDetailProps>(
     const database = vi ? (vi["database"] as Record<string, unknown> | undefined) : undefined;
     const resources = vi ? (vi["resources"] as Record<string, unknown> | undefined) : undefined;
     const probes = vi ? (vi["probes"] as ProbesSummary | undefined) : undefined;
+    const services = vi ? (vi["services"] as Record<string, unknown> | undefined) : undefined;
 
     return (
       <div
@@ -186,6 +187,40 @@ export const EnvironmentDetail = component$<EnvironmentDetailProps>(
                       : undefined
                   }
                 />
+              </Section>
+            )}
+
+            {/* Services section */}
+            {services && Object.keys(services).length > 0 && (
+              <Section title="Services">
+                {Object.entries(services).map(([name, svc]) => {
+                  const s = svc as Record<string, unknown> | undefined;
+                  if (!s) return null;
+                  const status = s["status"] as string;
+                  const svcName = (s["service"] as string) || name;
+                  const message = s["message"] as string | undefined;
+                  const latency = typeof s["latency_ms"] === "number" ? s["latency_ms"] as number : null;
+                  const isOk = status === "ok";
+                  return (
+                    <div key={name} class="py-1">
+                      <div class="flex items-center justify-between text-sm">
+                        <span class="flex items-center gap-2 text-muted">
+                          <span class={`inline-block h-2 w-2 rounded-full ${isOk ? "bg-success" : "bg-failure"}`} />
+                          {svcName}
+                        </span>
+                        <span class={`font-mono ${isOk ? "text-success" : "text-failure font-medium"}`}>
+                          {status}
+                          {latency !== null && (
+                            <span class="ml-2 text-muted font-normal">({latency}ms)</span>
+                          )}
+                        </span>
+                      </div>
+                      {message && (
+                        <p class="mt-0.5 pl-4 text-xs text-failure">{message}</p>
+                      )}
+                    </div>
+                  );
+                })}
               </Section>
             )}
 

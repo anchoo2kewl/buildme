@@ -488,10 +488,10 @@ const ProjectCard = component$<ProjectCardProps>(
                   )}
                 </div>
 
-                {/* Container metrics */}
-                {!!vi?.["container"] && (
-                  <div class="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted">
-                    {typeof (vi["container"] as Record<string, unknown>)?.["memory_usage_mb"] === "number" && (
+                {/* Container metrics + services */}
+                <div class="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted">
+                  {!!vi?.["container"] &&
+                    typeof (vi["container"] as Record<string, unknown>)?.["memory_usage_mb"] === "number" && (
                       <span>
                         container{" "}
                         {((vi["container"] as Record<string, unknown>)["memory_usage_mb"] as number).toFixed(0)}MB
@@ -499,8 +499,26 @@ const ProjectCard = component$<ProjectCardProps>(
                           `/${((vi["container"] as Record<string, unknown>)["memory_limit_mb"] as number).toFixed(0)}MB`}
                       </span>
                     )}
-                  </div>
-                )}
+                  {(() => {
+                    const services = vi?.["services"] as Record<string, unknown> | undefined;
+                    if (!services) return null;
+                    return Object.entries(services).map(([name, svc]) => {
+                      const s = svc as Record<string, unknown> | undefined;
+                      if (!s) return null;
+                      const status = s["status"] as string;
+                      const svcName = (s["service"] as string) || name;
+                      const latency = typeof s["latency_ms"] === "number" ? s["latency_ms"] as number : null;
+                      const isOk = status === "ok";
+                      return (
+                        <span key={name} class={`inline-flex items-center gap-1 ${isOk ? "" : "text-failure font-medium"}`}>
+                          <span class={`inline-block h-1.5 w-1.5 rounded-full ${isOk ? "bg-success" : "bg-failure"}`} />
+                          {svcName}
+                          {latency !== null && <span>({latency}ms)</span>}
+                        </span>
+                      );
+                    });
+                  })()}
+                </div>
               </button>
             );
           })}
