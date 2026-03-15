@@ -102,7 +102,7 @@ export default component$(() => {
             </span>
           )}
           <button
-            class="rounded-lg border border-border bg-elevated px-3 py-1.5 text-sm text-text transition-colors hover:border-accent/50 disabled:opacity-50"
+            class="inline-flex items-center gap-1.5 rounded-lg border border-border bg-elevated px-3 py-1.5 text-sm text-text transition-all hover:border-accent/40 hover:shadow-[0_0_12px_rgba(129,140,248,0.06)] disabled:opacity-50"
             disabled={refreshing.value}
             onClick$={async () => {
               refreshing.value = true;
@@ -110,25 +110,32 @@ export default component$(() => {
               refreshing.value = false;
             }}
           >
+            <svg class={`h-3.5 w-3.5 ${refreshing.value ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+              <path d="M21 3v5h-5" />
+            </svg>
             {refreshing.value ? "Refreshing..." : "Refresh"}
           </button>
           <a
             href="/dashboard/projects/new"
-            class="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+            class="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-accent to-indigo-400 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-accent/20 transition-all hover:shadow-accent/30 hover:brightness-110"
           >
+            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
             New Project
           </a>
         </div>
       </div>
 
-      {/* Environment filter tabs */}
-      <div class="mb-4 flex border-b border-border">
+      {/* Environment filter pills */}
+      <div class="mb-5 inline-flex rounded-xl bg-elevated/60 p-1">
         {(["all", "production", "staging", "uat"] as const).map((tab) => (
           <button
             key={tab}
-            class={`px-4 py-2 text-sm font-medium capitalize transition-colors ${
+            class={`rounded-lg px-4 py-1.5 text-sm font-medium capitalize transition-all ${
               envFilter.value === tab
-                ? "border-b-2 border-accent text-accent"
+                ? "bg-accent/15 text-accent shadow-sm"
                 : "text-muted hover:text-text"
             }`}
             onClick$={() => {
@@ -203,9 +210,9 @@ function timeAgo(dateStr: string): string {
 }
 
 function statusColor(status: number): string {
-  if (status === 200) return "bg-success";
-  if (status > 0) return "bg-warning";
-  return "bg-failure";
+  if (status === 200) return "bg-success bm-dot-success";
+  if (status > 0) return "bg-warning bm-dot-warning";
+  return "bg-failure bm-dot-failure";
 }
 
 function buildStatusColor(status: string): string {
@@ -225,21 +232,46 @@ function buildStatusColor(status: string): string {
   }
 }
 
-function buildStatusIcon(status: string): string {
+function BuildStatusIcon({ status }: { status: string }) {
+  const cls = "h-3.5 w-3.5";
   switch (status) {
     case "success":
-      return "\u2713";
+      return (
+        <svg class={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10" opacity="0.2" fill="currentColor" />
+          <path d="m9 12 2 2 4-4" />
+        </svg>
+      );
     case "failure":
     case "error":
-      return "\u2717";
+      return (
+        <svg class={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10" opacity="0.2" fill="currentColor" />
+          <path d="m15 9-6 6M9 9l6 6" />
+        </svg>
+      );
     case "running":
-      return "\u25CB";
+      return (
+        <svg class={`${cls} animate-spin`} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+        </svg>
+      );
     case "queued":
-      return "\u25CB";
+      return (
+        <svg class={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10" />
+          <polyline points="12 6 12 12 16 14" />
+        </svg>
+      );
     case "cancelled":
-      return "\u25CB";
+      return (
+        <svg class={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+          <circle cx="12" cy="12" r="10" opacity="0.2" fill="currentColor" />
+          <path d="M4.93 4.93l14.14 14.14" />
+        </svg>
+      );
     default:
-      return "\u00B7";
+      return <span class="inline-block h-1.5 w-1.5 rounded-full bg-current" />;
   }
 }
 
@@ -536,7 +568,7 @@ const ProjectCard = component$<ProjectCardProps>(
           <div class="border-t border-border px-5 py-2.5">
             <div class="flex items-center gap-3 text-xs">
               <span class={buildStatusColor(mainBuild.status)}>
-                {buildStatusIcon(mainBuild.status)}
+                <BuildStatusIcon status={mainBuild.status} />
               </span>
               {mainBuild.provider_type && (
                 <CIProviderIcon provider={mainBuild.provider_type} size={14} />
@@ -575,7 +607,7 @@ const ProjectCard = component$<ProjectCardProps>(
                 {mainBuild.jobs.map((job) => (
                   <span key={job.id} class="flex items-center gap-1">
                     <span class={buildStatusColor(job.status)}>
-                      {buildStatusIcon(job.status)}
+                      <BuildStatusIcon status={job.status} />
                     </span>
                     <span class="text-muted">{job.name}</span>
                     {job.duration_ms != null && (
@@ -639,7 +671,7 @@ const IncidentsBanner = component$<IncidentsBannerProps>(({ incidents }) => {
   if (incidents.length === 0) return null;
 
   return (
-    <div class="mb-4 rounded-lg border border-failure/30 bg-failure/5">
+    <div class="mb-4 rounded-xl border border-failure/25 bg-gradient-to-r from-failure/10 to-failure/[0.03]">
       <button
         class="flex w-full items-center justify-between px-4 py-2 text-left"
         onClick$={() => {
@@ -647,19 +679,25 @@ const IncidentsBanner = component$<IncidentsBannerProps>(({ incidents }) => {
         }}
       >
         <div class="flex items-center gap-2">
-          <span class="inline-block h-2 w-2 rounded-full bg-failure" />
+          <span class="inline-block h-2 w-2 animate-pulse rounded-full bg-failure bm-dot-failure" />
           <span class="text-sm font-medium text-failure">
             {incidents.length} Recent Incident{incidents.length > 1 ? "s" : ""}
           </span>
         </div>
-        <span
-          class="text-xs text-muted transition-transform"
+        <svg
+          class="h-4 w-4 text-muted transition-transform"
           style={{
             transform: collapsed.value ? "rotate(0)" : "rotate(180deg)",
           }}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
         >
-          &#9660;
-        </span>
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
       </button>
 
       {!collapsed.value && (

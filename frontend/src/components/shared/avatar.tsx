@@ -24,13 +24,13 @@ export const Avatar = component$<AvatarProps>(({ src, name, size = "md" }) => {
     <img
       src={src}
       alt={name}
-      class={`rounded-full ${sizeClasses[size]}`}
+      class={`rounded-full ring-2 ring-accent/20 ${sizeClasses[size]}`}
       width={32}
       height={32}
     />
   ) : (
     <div
-      class={`flex items-center justify-center rounded-full bg-accent font-medium text-white ${sizeClasses[size]}`}
+      class={`flex items-center justify-center rounded-full bg-gradient-to-br from-accent to-indigo-400 font-medium text-white ring-2 ring-accent/20 ${sizeClasses[size]}`}
     >
       {initials}
     </div>

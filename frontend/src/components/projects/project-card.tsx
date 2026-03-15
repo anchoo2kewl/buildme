@@ -9,7 +9,7 @@ export const ProjectCard = component$<ProjectCardProps>(({ project }) => {
   return (
     <a
       href={`/dashboard/projects/${project.id}`}
-      class="block rounded-lg border border-border bg-elevated p-5 transition-colors hover:border-accent/50"
+      class="block rounded-lg border border-border bg-elevated p-5 transition-all hover:border-accent/50 hover:shadow-lg hover:shadow-accent/5 hover:-translate-y-0.5"
     >
       <h3 class="text-lg font-semibold text-text">{project.name}</h3>
       {project.description && (

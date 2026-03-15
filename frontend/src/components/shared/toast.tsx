@@ -27,7 +27,7 @@ export const Toast = component$<ToastProps>(
 
     return (
       <div
-        class={`fixed bottom-4 right-4 z-50 rounded-lg border px-4 py-3 shadow-lg ${colors[type]}`}
+        class={`fixed bottom-4 right-4 z-50 rounded-lg border px-4 py-3 shadow-xl backdrop-blur-lg ${colors[type]}`}
       >
         {message}
       </div>

@@ -29,14 +29,14 @@ export default component$(() => {
     <div class="mx-auto max-w-4xl">
       <h1 class="mb-6 text-2xl font-bold text-text">Admin</h1>
 
-      <div class="mb-6 flex gap-1 rounded-lg border border-border bg-elevated p-1">
+      <div class="mb-6 inline-flex gap-1 rounded-xl border border-border bg-elevated/60 p-1">
         {(["users", "email", "system"] as const).map((t) => (
           <button
             key={t}
             onClick$={() => (tab.value = t)}
-            class={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+            class={`rounded-lg px-4 py-2 text-sm font-medium transition-all ${
               tab.value === t
-                ? "bg-accent text-white"
+                ? "bg-accent/15 text-accent shadow-sm"
                 : "text-muted hover:text-text"
             }`}
           >
@@ -103,7 +103,7 @@ const UsersTab = component$(() => {
       <div class="overflow-x-auto">
         <table class="w-full text-left text-sm">
           <thead>
-            <tr class="border-b border-border text-muted">
+            <tr class="border-b border-border bg-surface/30 text-muted">
               <th class="px-4 py-3 font-medium">User</th>
               <th class="px-4 py-3 font-medium">Email</th>
               <th class="px-4 py-3 font-medium">GitHub</th>
@@ -113,7 +113,7 @@ const UsersTab = component$(() => {
           </thead>
           <tbody>
             {users.value.map((u) => (
-              <tr key={u.id} class="border-b border-border last:border-0">
+              <tr key={u.id} class="border-b border-border transition-colors last:border-0 hover:bg-white/[0.02]">
                 <td class="px-4 py-3">
                   <div class="flex items-center gap-2">
                     {u.avatar_url ? (
@@ -143,8 +143,8 @@ const UsersTab = component$(() => {
                   <button
                     onClick$={() => toggleSuperAdmin(u.id)}
                     disabled={toggling.value === u.id}
-                    class={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      u.is_super_admin ? "bg-accent" : "bg-border"
+                    class={`relative inline-flex h-6 w-11 items-center rounded-full transition-all ${
+                      u.is_super_admin ? "bg-gradient-to-r from-accent to-indigo-400 shadow-sm shadow-accent/30" : "bg-border"
                     }`}
                   >
                     <span

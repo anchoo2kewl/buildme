@@ -18,12 +18,12 @@ interface MetricChartProps {
 }
 
 const W = 600;
-const H = 160;
-const PAD = { top: 20, right: 16, bottom: 28, left: 48 };
+const H = 180;
+const PAD = { top: 24, right: 16, bottom: 30, left: 52 };
 const PLOT_W = W - PAD.left - PAD.right;
 const PLOT_H = H - PAD.top - PAD.bottom;
 
-function formatAxisValue(v: number, unit: string): string {
+function formatAxisValue(v: number, _unit: string): string {
   if (v >= 1000) return `${(v / 1000).toFixed(1)}k`;
   if (v >= 100) return v.toFixed(0);
   if (v >= 10) return v.toFixed(1);
@@ -35,17 +35,32 @@ function formatTime(dateStr: string): string {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+function formatDate(dateStr: string): string {
+  const d = new Date(dateStr);
+  return d.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+// Generate a unique ID-safe string from the color
+function colorId(color: string): string {
+  return color.replace(/[^a-zA-Z0-9]/g, "");
+}
+
 export const MetricChart = component$<MetricChartProps>(
   ({ data, label, color, unit, incidents }) => {
     const hoverIdx = useSignal<number | null>(null);
 
     if (!data || data.length === 0) {
       return (
-        <div class="flex h-[160px] items-center justify-center rounded-lg border border-border bg-surface text-xs text-muted">
+        <div class="flex h-[180px] items-center justify-center rounded-xl border border-border bg-elevated text-xs text-muted">
+          <svg class="mr-2 h-4 w-4 opacity-40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 13h2l3-8 4 16 3-8h6" />
+          </svg>
           No {label} data
         </div>
       );
     }
+
+    const cid = colorId(color);
 
     // Compute scales
     const values = data.map((d) => d.value);
@@ -83,14 +98,17 @@ export const MetricChart = component$<MetricChartProps>(
       return { val, y: scaleY(val) };
     });
 
-    // X-axis ticks (4h intervals or proportional)
+    // X-axis ticks (proportional)
     const xTicks: { label: string; x: number }[] = [];
     const hourMs = 3600000;
-    const tickStep = Math.max(hourMs * 4, tRange / 5);
+    const tickStep = Math.max(hourMs * 4, tRange / 6);
     for (let t = tMin; t <= tMax; t += tickStep) {
       const d = new Date(t);
+      const lbl = tRange > 3 * 24 * hourMs
+        ? `${d.toLocaleDateString([], { month: "short", day: "numeric" })}`
+        : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       xTicks.push({
-        label: d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        label: lbl,
         x: PAD.left + ((t - tMin) / tRange) * PLOT_W,
       });
     }
@@ -114,12 +132,12 @@ export const MetricChart = component$<MetricChartProps>(
       if (!svg) return;
       const rect = svg.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
-      const plotX = mouseX - PAD.left;
+      const svgX = (mouseX / rect.width) * W;
+      const plotX = svgX - PAD.left;
       if (plotX < 0 || plotX > PLOT_W) {
         hoverIdx.value = null;
         return;
       }
-      // Find nearest data point
       const targetT = tMin + (plotX / PLOT_W) * tRange;
       let best = 0;
       let bestDist = Infinity;
@@ -139,22 +157,47 @@ export const MetricChart = component$<MetricChartProps>(
 
     return (
       <div class="relative">
-        <div class="mb-1 flex items-center justify-between text-[11px]">
-          <span class="font-medium text-text">{label}</span>
+        <div class="mb-1.5 flex items-center justify-between">
+          <span class="flex items-center gap-2 text-xs font-semibold text-text">
+            <span
+              class="inline-block h-2.5 w-2.5 rounded-sm"
+              style={{ backgroundColor: color }}
+            />
+            {label}
+          </span>
           {hovered && (
-            <span class="font-mono text-muted">
-              {formatAxisValue(hovered.value, unit)} {unit} &middot;{" "}
-              {formatTime(hovered.time)}
+            <span class="rounded-md bg-elevated px-2 py-0.5 font-mono text-[11px] text-muted">
+              {formatAxisValue(hovered.value, unit)} {unit}
+              <span class="mx-1 opacity-40">|</span>
+              {formatDate(hovered.time)} {formatTime(hovered.time)}
             </span>
           )}
         </div>
         <svg
           viewBox={`0 0 ${W} ${H}`}
-          class="w-full rounded-lg border border-border bg-surface"
+          class="w-full rounded-xl border border-border"
+          style={{ background: "linear-gradient(180deg, #141621, #0f1119)" }}
           preserveAspectRatio="xMidYMid meet"
           onMouseMove$={onMouseMove}
           onMouseLeave$={onMouseLeave}
         >
+          <defs>
+            {/* Area gradient */}
+            <linearGradient id={`area-${cid}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color={color} stop-opacity="0.3" />
+              <stop offset="60%" stop-color={color} stop-opacity="0.08" />
+              <stop offset="100%" stop-color={color} stop-opacity="0" />
+            </linearGradient>
+            {/* Line glow filter */}
+            <filter id={`glow-${cid}`}>
+              <feGaussianBlur stdDeviation="2" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+
           {/* Grid lines */}
           {yTicks.map((tick) => (
             <line
@@ -163,7 +206,7 @@ export const MetricChart = component$<MetricChartProps>(
               y1={tick.y}
               x2={PAD.left + PLOT_W}
               y2={tick.y}
-              stroke="var(--sa-border)"
+              stroke="rgba(255,255,255,0.05)"
               stroke-width="0.5"
             />
           ))}
@@ -172,12 +215,12 @@ export const MetricChart = component$<MetricChartProps>(
           {yTicks.map((tick) => (
             <text
               key={tick.val}
-              x={PAD.left - 6}
-              y={tick.y + 3}
+              x={PAD.left - 8}
+              y={tick.y + 3.5}
               text-anchor="end"
-              fill="var(--sa-muted)"
-              font-size="9"
-              font-family="monospace"
+              fill="#7c8ca8"
+              font-size="10"
+              font-family="ui-monospace, monospace"
             >
               {formatAxisValue(tick.val, unit)}
             </text>
@@ -188,33 +231,48 @@ export const MetricChart = component$<MetricChartProps>(
             <text
               key={tick.label}
               x={tick.x}
-              y={H - 4}
+              y={H - 6}
               text-anchor="middle"
-              fill="var(--sa-muted)"
-              font-size="9"
-              font-family="monospace"
+              fill="#7c8ca8"
+              font-size="10"
+              font-family="ui-monospace, monospace"
             >
               {tick.label}
             </text>
           ))}
 
-          {/* Area fill */}
-          <path d={areaPath} fill={color} opacity="0.1" />
+          {/* Area fill with gradient */}
+          <path d={areaPath} fill={`url(#area-${cid})`} />
 
-          {/* Line */}
-          <path d={linePath} fill="none" stroke={color} stroke-width="1.5" />
+          {/* Main line with glow */}
+          <path
+            d={linePath}
+            fill="none"
+            stroke={color}
+            stroke-width="2.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            filter={`url(#glow-${cid})`}
+          />
 
           {/* Incident markers */}
           {incidentDots.map((dot, i) => (
-            <circle
-              key={i}
-              cx={dot.x}
-              cy={dot.y}
-              r="4"
-              fill="#ef4444"
-              stroke="var(--sa-surface)"
-              stroke-width="1.5"
-            />
+            <g key={i}>
+              <circle
+                cx={dot.x}
+                cy={dot.y}
+                r="7"
+                fill="rgba(248,113,113,0.15)"
+              />
+              <circle
+                cx={dot.x}
+                cy={dot.y}
+                r="4.5"
+                fill="#f87171"
+                stroke="#141621"
+                stroke-width="1.5"
+              />
+            </g>
           ))}
 
           {/* Hover crosshair + dot */}
@@ -225,16 +283,25 @@ export const MetricChart = component$<MetricChartProps>(
                 y1={PAD.top}
                 x2={scaleX(hovered.time)}
                 y2={PAD.top + PLOT_H}
-                stroke="var(--sa-muted)"
-                stroke-width="0.5"
-                stroke-dasharray="3,3"
+                stroke="rgba(255,255,255,0.12)"
+                stroke-width="1"
+                stroke-dasharray="4,3"
               />
+              {/* Outer glow ring */}
               <circle
                 cx={scaleX(hovered.time)}
                 cy={scaleY(hovered.value)}
-                r="3.5"
+                r="8"
                 fill={color}
-                stroke="var(--sa-surface)"
+                opacity="0.15"
+              />
+              {/* Inner dot */}
+              <circle
+                cx={scaleX(hovered.time)}
+                cy={scaleY(hovered.value)}
+                r="4.5"
+                fill={color}
+                stroke="#141621"
                 stroke-width="2"
               />
             </>

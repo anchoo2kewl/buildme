@@ -1,44 +1,81 @@
 @import "tailwindcss";
 
 @theme {
-  --color-surface: #1a1a2e;
-  --color-elevated: #25253e;
-  --color-border: #3a3a5c;
-  --color-text: #e2e2f0;
-  --color-muted: #8888a8;
-  --color-accent: #6366f1;
-  --color-accent-hover: #818cf8;
-  --color-success: #22c55e;
-  --color-failure: #ef4444;
-  --color-warning: #f59e0b;
-  --color-running: #3b82f6;
+  --color-surface: #0b0d14;
+  --color-elevated: #141621;
+  --color-border: #1e2235;
+  --color-text: #f1f5f9;
+  --color-muted: #7c8ca8;
+  --color-accent: #818cf8;
+  --color-accent-hover: #a5b4fc;
+  --color-success: #34d399;
+  --color-failure: #f87171;
+  --color-warning: #fbbf24;
+  --color-running: #60a5fa;
+  --color-surface-hover: #1a1e2e;
+  --color-border-hover: #2a3050;
 }
 
 body {
   font-family: "Inter", system-ui, -apple-system, sans-serif;
+  background:
+    radial-gradient(ellipse 80% 50% at 10% 20%, rgba(129, 140, 248, 0.04), transparent),
+    radial-gradient(ellipse 60% 40% at 90% 80%, rgba(52, 211, 153, 0.03), transparent),
+    var(--color-surface);
 }
 
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--color-surface);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* ─── Animations ────────────────────── */
+
+@keyframes bm-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes bm-glow-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 /* ─── Project Cards ─────────────────── */
 
 .bm-card {
-  transition: border-color 0.15s ease;
+  position: relative;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  animation: bm-fade-in 0.3s ease;
+}
+
+.bm-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
+  pointer-events: none;
 }
 
 .bm-card:hover {
-  border-color: color-mix(in srgb, var(--color-accent) 30%, var(--color-border));
+  border-color: color-mix(in srgb, var(--color-accent) 35%, var(--color-border));
+  box-shadow: 0 4px 24px rgba(129, 140, 248, 0.06), 0 0 0 1px rgba(129, 140, 248, 0.04);
+  transform: translateY(-1px);
 }
 
 .bm-tag {
@@ -49,6 +86,25 @@ body {
 .bm-env-col {
   cursor: pointer;
   min-width: 0;
+  transition: background-color 0.15s ease;
+}
+
+.bm-env-col:hover {
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+/* ─── Glow dots ─────────────────────── */
+
+.bm-dot-success {
+  box-shadow: 0 0 6px rgba(52, 211, 153, 0.5);
+}
+
+.bm-dot-failure {
+  box-shadow: 0 0 6px rgba(248, 113, 113, 0.5);
+}
+
+.bm-dot-warning {
+  box-shadow: 0 0 6px rgba(251, 191, 36, 0.5);
 }
 
 /* Mobile: stack environment columns */

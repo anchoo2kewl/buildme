@@ -29,7 +29,7 @@ export const BuildCard = component$<BuildCardProps>(({ build }) => {
   return (
     <a
       href={`/dashboard/projects/${build.project_id}/builds/${build.id}`}
-      class="block rounded-lg border border-border bg-elevated p-4 transition-colors hover:border-accent/50"
+      class="block rounded-lg border border-border bg-elevated p-4 transition-all hover:border-accent/50 hover:shadow-lg hover:shadow-accent/5 hover:-translate-y-0.5"
     >
       <div class="flex items-start justify-between">
         <div class="min-w-0 flex-1">

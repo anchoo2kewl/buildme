@@ -3,9 +3,41 @@ import { useLocation } from "@builder.io/qwik-city";
 import { AuthContext } from "~/context/auth-context";
 
 const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" },
-  { href: "/dashboard/projects", label: "Projects", icon: "M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" },
-  { href: "/dashboard/settings", label: "Settings", icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z" },
+  {
+    href: "/dashboard",
+    label: "Dashboard",
+    // Lucide: LayoutDashboard
+    icon: (
+      <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="7" height="9" rx="1" />
+        <rect x="14" y="3" width="7" height="5" rx="1" />
+        <rect x="14" y="12" width="7" height="9" rx="1" />
+        <rect x="3" y="16" width="7" height="5" rx="1" />
+      </svg>
+    ),
+  },
+  {
+    href: "/dashboard/projects",
+    label: "Projects",
+    // Lucide: FolderKanban
+    icon: (
+      <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
+        <path d="M8 10v4M12 10v2M16 10v6" />
+      </svg>
+    ),
+  },
+  {
+    href: "/dashboard/settings",
+    label: "Settings",
+    // Lucide: Settings
+    icon: (
+      <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+        <circle cx="12" cy="12" r="3" />
+      </svg>
+    ),
+  },
 ];
 
 export const Sidebar = component$(() => {
@@ -13,7 +45,7 @@ export const Sidebar = component$(() => {
   const auth = useContext(AuthContext);
 
   return (
-    <nav class="w-56 border-r border-border bg-elevated">
+    <nav class="w-56 border-r border-border bg-gradient-to-b from-elevated to-surface">
       <div class="space-y-1 p-3">
         {navItems.map((item) => {
           const isActive =
@@ -24,46 +56,36 @@ export const Sidebar = component$(() => {
             <a
               key={item.href}
               href={item.href}
-              class={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
+              class={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all ${
                 isActive
-                  ? "bg-accent/10 text-accent"
-                  : "text-muted hover:bg-surface hover:text-text"
+                  ? "border-l-2 border-accent bg-gradient-to-r from-accent/15 to-transparent font-semibold text-accent"
+                  : "border-l-2 border-transparent text-muted hover:bg-white/[0.04] hover:text-text"
               }`}
             >
-              <svg
-                class="h-5 w-5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                stroke-width="1.5"
-              >
-                <path stroke-linecap="round" stroke-linejoin="round" d={item.icon} />
-              </svg>
+              {item.icon}
               {item.label}
             </a>
           );
         })}
 
         {auth.user?.is_super_admin && (
-          <a
-            href="/dashboard/admin"
-            class={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
-              loc.url.pathname.startsWith("/dashboard/admin")
-                ? "bg-accent/10 text-accent"
-                : "text-muted hover:bg-surface hover:text-text"
-            }`}
-          >
-            <svg
-              class="h-5 w-5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              stroke-width="1.5"
+          <>
+            <div class="my-2 border-t border-border/50" />
+            <a
+              href="/dashboard/admin"
+              class={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all ${
+                loc.url.pathname.startsWith("/dashboard/admin")
+                  ? "border-l-2 border-accent bg-gradient-to-r from-accent/15 to-transparent font-semibold text-accent"
+                  : "border-l-2 border-transparent text-muted hover:bg-white/[0.04] hover:text-text"
+              }`}
             >
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
-            </svg>
-            Admin
-          </a>
+              <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                <path d="m9 12 2 2 4-4" />
+              </svg>
+              Admin
+            </a>
+          </>
         )}
       </div>
     </nav>

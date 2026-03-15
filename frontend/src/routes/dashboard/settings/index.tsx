@@ -391,7 +391,7 @@ export default component$(() => {
               {MCP_TOOLS.map((tool) => (
                 <span
                   key={tool}
-                  class="rounded-full bg-accent/10 px-2.5 py-0.5 font-mono text-xs text-accent"
+                  class="rounded-full border border-accent/20 bg-accent/15 px-2.5 py-0.5 font-mono text-xs text-accent"
                 >
                   {tool}
                 </span>
@@ -404,7 +404,7 @@ export default component$(() => {
               Claude Code Config
             </label>
             <div class="relative">
-              <pre class="overflow-x-auto rounded-lg border border-border bg-surface p-3 font-mono text-xs text-text">
+              <pre class="overflow-x-auto rounded-lg border border-border bg-[#0a0c12] p-3 font-mono text-xs text-text">
 {`{
   "mcpServers": {
     "buildme": {

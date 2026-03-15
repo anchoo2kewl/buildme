@@ -44,10 +44,10 @@ export const EnvironmentDetail = component$<EnvironmentDetailProps>(
 
     const healthColor =
       e.health_status === 200
-        ? "bg-success"
+        ? "bg-success shadow-[0_0_8px_rgba(52,211,153,0.5)]"
         : e.health_status > 0
-          ? "bg-warning"
-          : "bg-failure";
+          ? "bg-warning shadow-[0_0_8px_rgba(251,191,36,0.5)]"
+          : "bg-failure shadow-[0_0_8px_rgba(248,113,113,0.5)]";
 
     const backend = vi ? (vi["backend"] as Record<string, unknown> | undefined) : undefined;
     const frontend = vi ? (vi["frontend"] as Record<string, unknown> | undefined) : undefined;
@@ -59,13 +59,13 @@ export const EnvironmentDetail = component$<EnvironmentDetailProps>(
 
     return (
       <div
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
         onClick$={() => {
           env.value = null;
         }}
       >
         <div
-          class="mx-4 w-full max-w-lg rounded-xl border border-border bg-elevated shadow-2xl"
+          class="mx-4 w-full max-w-xl rounded-xl border border-border bg-elevated shadow-2xl"
           onClick$={(e: Event) => e.stopPropagation()}
         >
           {/* Header */}
@@ -78,12 +78,15 @@ export const EnvironmentDetail = component$<EnvironmentDetailProps>(
               </h2>
             </div>
             <button
-              class="text-muted transition-colors hover:text-text"
+              class="rounded-lg p-1 text-muted transition-colors hover:bg-white/[0.05] hover:text-text"
               onClick$={() => {
                 env.value = null;
               }}
             >
-              ✕
+              <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
             </button>
           </div>
 
@@ -316,7 +319,8 @@ export const EnvironmentDetail = component$<EnvironmentDetailProps>(
 const Section = component$<{ title: string }>(({ title }) => {
   return (
     <div class="mb-4">
-      <h3 class="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">
+      <h3 class="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted">
+        <span class="inline-block h-3 w-0.5 rounded-full bg-accent" />
         {title}
       </h3>
       <div class="rounded-lg border border-border bg-surface p-3">
@@ -336,12 +340,17 @@ interface KVProps {
 
 const KV = component$<KVProps>(({ label, value, mono }) => {
   if (!value) return null;
+  const display = value.length > 30 ? value.substring(0, 30) + "..." : value;
   return (
     <div class="flex justify-between py-1 text-sm">
       <span class="text-muted">{label}</span>
-      <span class={`text-text ${mono ? "font-mono" : ""}`}>
-        {value.length > 30 ? value.substring(0, 30) + "..." : value}
-      </span>
+      {mono ? (
+        <span class="rounded bg-surface/80 px-1.5 py-0.5 font-mono text-xs text-text">
+          {display}
+        </span>
+      ) : (
+        <span class="text-text">{display}</span>
+      )}
     </div>
   );
 });
@@ -407,17 +416,26 @@ const MetricsPanel = component$<MetricsPanelProps>(({ projectId, env }) => {
   return (
     <div class="mb-4">
       <button
-        class="mb-2 flex w-full items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted hover:text-text"
+        class="mb-2 flex w-full items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted transition-colors hover:text-text"
         onClick$={() => {
           expanded.value = !expanded.value;
         }}
       >
-        <span
-          class="inline-block transition-transform"
+        <svg
+          class="h-3.5 w-3.5 transition-transform"
           style={{ transform: expanded.value ? "rotate(90deg)" : "rotate(0)" }}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
         >
-          &#9654;
-        </span>
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+        <svg class="h-3.5 w-3.5 opacity-50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 13h2l3-8 4 16 3-8h6" />
+        </svg>
         Metrics (30d)
       </button>
 
@@ -432,7 +450,7 @@ const MetricsPanel = component$<MetricsPanelProps>(({ projectId, env }) => {
               <MetricChart
                 data={memoryData}
                 label="Memory Alloc"
-                color="#3b82f6"
+                color="#60a5fa"
                 unit="MB"
                 incidents={envIncidents}
               />
@@ -440,7 +458,7 @@ const MetricsPanel = component$<MetricsPanelProps>(({ projectId, env }) => {
                 <MetricChart
                   data={containerMemData}
                   label="Container Memory"
-                  color="#f97316"
+                  color="#fb923c"
                   unit="MB"
                   incidents={envIncidents}
                 />
@@ -448,14 +466,14 @@ const MetricsPanel = component$<MetricsPanelProps>(({ projectId, env }) => {
               <MetricChart
                 data={goroutineData}
                 label="Goroutines"
-                color="#22c55e"
+                color="#34d399"
                 unit=""
                 incidents={envIncidents}
               />
               <MetricChart
                 data={responseData}
                 label="Response Time"
-                color="#a855f7"
+                color="#c084fc"
                 unit="ms"
                 incidents={envIncidents}
               />

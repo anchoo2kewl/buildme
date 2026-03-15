@@ -52,7 +52,7 @@ export default component$(() => {
   });
 
   return (
-    <div class="flex h-screen flex-col bg-surface">
+    <div class="flex h-screen flex-col" style={{ background: "radial-gradient(ellipse 80% 50% at 50% 0%, rgba(129,140,248,0.03), transparent), var(--color-surface)" }}>
       <Header />
       <div class="flex flex-1 overflow-hidden">
         <Sidebar />

@@ -62,7 +62,7 @@ export const EnvironmentMatrix = component$<EnvironmentMatrixProps>(
                     <td key={env} class="px-4 py-3 text-center">
                       {es ? (
                         <button
-                          class="group inline-flex flex-col items-center gap-1 rounded-lg px-3 py-2 transition-colors hover:bg-surface"
+                          class="group inline-flex flex-col items-center gap-1 rounded-lg px-3 py-2 transition-all hover:bg-white/[0.03] hover:shadow-sm"
                           onClick$={() => {
                             selectedEnv.value = es;
                           }}
@@ -87,10 +87,10 @@ export const EnvironmentMatrix = component$<EnvironmentMatrixProps>(
 const EnvCell = component$<{ env: EnvironmentStatus }>(({ env }) => {
   const healthColor =
     env.health_status === 200
-      ? "bg-success"
+      ? "bg-success shadow-[0_0_6px_rgba(52,211,153,0.5)]"
       : env.health_status > 0
-        ? "bg-warning"
-        : "bg-failure";
+        ? "bg-warning shadow-[0_0_6px_rgba(251,191,36,0.5)]"
+        : "bg-failure shadow-[0_0_6px_rgba(248,113,113,0.5)]";
 
   return (
     <>

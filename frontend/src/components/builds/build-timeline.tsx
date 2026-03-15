@@ -21,11 +21,14 @@ export const BuildTimeline = component$<BuildTimelineProps>(({ jobs }) => {
   }
 
   return (
-    <div class="space-y-2">
+    <div class="relative space-y-2">
+      {jobs.length > 1 && (
+        <div class="absolute left-[26px] top-4 bottom-4 w-px bg-border" />
+      )}
       {jobs.map((job) => (
         <div
           key={job.id}
-          class="flex items-center justify-between rounded-lg border border-border bg-elevated p-3"
+          class="relative flex items-center justify-between rounded-lg border border-border bg-elevated p-3"
         >
           <div class="flex items-center gap-3">
             <StatusBadge status={job.status} />

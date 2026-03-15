@@ -2,11 +2,18 @@ import { component$ } from "@builder.io/qwik";
 
 export default component$(() => {
   return (
-    <div class="min-h-screen bg-surface">
+    <div class="min-h-screen" style={{ background: "radial-gradient(ellipse 80% 50% at 50% 0%, rgba(129,140,248,0.06), transparent), radial-gradient(ellipse 60% 40% at 80% 80%, rgba(52,211,153,0.04), transparent), var(--color-surface)" }}>
       {/* Nav */}
       <nav class="border-b border-border bg-elevated/50 backdrop-blur-sm">
         <div class="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
-          <span class="text-lg font-bold text-accent">BuildMe</span>
+          <span class="flex items-center gap-2 text-lg font-bold text-accent">
+            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="4" y1="6" x2="20" y2="6" />
+              <line x1="4" y1="12" x2="14" y2="12" />
+              <line x1="4" y1="18" x2="18" y2="18" />
+            </svg>
+            BuildMe
+          </span>
           <div class="flex items-center gap-3">
             <a
               href="/auth/login"
@@ -16,7 +23,7 @@ export default component$(() => {
             </a>
             <a
               href="/auth/signup"
-              class="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+              class="rounded-lg bg-gradient-to-r from-accent to-indigo-400 px-4 py-2 text-sm font-medium text-white transition-all hover:brightness-110"
             >
               Get Started
             </a>
@@ -33,7 +40,7 @@ export default component$(() => {
         <h1 class="text-5xl font-extrabold leading-tight tracking-tight text-text sm:text-6xl">
           One dashboard for
           <br />
-          <span class="text-accent">all your builds</span>
+          <span class="bg-gradient-to-r from-accent to-running bg-clip-text text-transparent">all your builds</span>
         </h1>
         <p class="mx-auto mt-6 max-w-2xl text-lg text-muted">
           Monitor GitHub Actions, Travis CI, and CircleCI from a unified
@@ -43,7 +50,7 @@ export default component$(() => {
         <div class="mt-10 flex items-center justify-center gap-4">
           <a
             href="/auth/signup"
-            class="rounded-lg bg-accent px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-accent/25 transition-all hover:bg-accent-hover hover:shadow-accent/40"
+            class="rounded-lg bg-gradient-to-r from-accent to-indigo-400 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-accent/30 transition-all hover:shadow-accent/50 hover:brightness-110"
           >
             Start Monitoring
           </a>
@@ -56,7 +63,7 @@ export default component$(() => {
         </div>
 
         {/* Terminal mockup */}
-        <div class="mx-auto mt-16 max-w-2xl overflow-hidden rounded-xl border border-border bg-elevated shadow-2xl">
+        <div class="mx-auto mt-16 max-w-2xl overflow-hidden rounded-xl border border-border bg-elevated shadow-2xl shadow-accent/5">
           <div class="flex items-center gap-2 border-b border-border px-4 py-3">
             <span class="h-3 w-3 rounded-full bg-failure/60" />
             <span class="h-3 w-3 rounded-full bg-warning/60" />
@@ -102,33 +109,24 @@ export default component$(() => {
           </p>
           <div class="flex items-center justify-center gap-12">
             <div class="flex items-center gap-3 text-muted">
-              <img
-                src="https://img.icons8.com/ios-filled/50/ffffff/github.png"
-                alt="GitHub"
-                width="28"
-                height="28"
-                style={{ opacity: 0.7 }}
-              />
+              <svg class="h-7 w-7 text-text/70" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
+              </svg>
               <span class="text-sm font-medium text-text">GitHub Actions</span>
             </div>
             <div class="flex items-center gap-3 text-muted">
-              <img
-                src="https://img.icons8.com/color/48/travis-ci.png"
-                alt="Travis CI"
-                width="28"
-                height="28"
-                style={{ opacity: 0.8 }}
-              />
+              <svg class="h-7 w-7" viewBox="0 0 24 24" fill="none">
+                <rect x="2" y="2" width="20" height="20" rx="4" fill="#3EAAAF" />
+                <path d="M7 8h10M12 8v8M9 16h6" stroke="white" stroke-width="2" stroke-linecap="round" />
+              </svg>
               <span class="text-sm font-medium text-text">Travis CI</span>
             </div>
             <div class="flex items-center gap-3 text-muted">
-              <img
-                src="https://img.icons8.com/color/48/circleci.png"
-                alt="CircleCI"
-                width="28"
-                height="28"
-                style={{ opacity: 0.8 }}
-              />
+              <svg class="h-7 w-7" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="10" stroke="#60a5fa" stroke-width="1.5" />
+                <circle cx="12" cy="12" r="6" stroke="#60a5fa" stroke-width="1.5" />
+                <circle cx="12" cy="12" r="2.5" fill="#60a5fa" />
+              </svg>
               <span class="text-sm font-medium text-text">CircleCI</span>
             </div>
           </div>
@@ -278,7 +276,7 @@ export default component$(() => {
           <div class="mt-8 flex items-center justify-center gap-4">
             <a
               href="/auth/signup"
-              class="rounded-lg bg-accent px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-accent-hover"
+              class="rounded-lg bg-gradient-to-r from-accent to-indigo-400 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-accent/30 transition-all hover:shadow-accent/50 hover:brightness-110"
             >
               Create Account
             </a>
@@ -312,8 +310,8 @@ const FeatureCard = component$<FeatureCardProps>(({ title, desc, icon }) => {
     server: "M4 4h16v6H4V4zm0 10h16v6H4v-6zm2-7h.01M6 17h.01",
   };
   return (
-    <div class="rounded-xl border border-border bg-elevated p-6 transition-colors hover:border-accent/30">
-      <div class="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-accent/10">
+    <div class="group rounded-xl border border-border bg-elevated p-6 transition-all hover:border-accent/30 hover:shadow-lg hover:shadow-accent/5 hover:-translate-y-0.5">
+      <div class="mb-3 flex h-11 w-11 items-center justify-center rounded-lg bg-gradient-to-br from-accent/15 to-accent/5">
         <svg
           class="h-5 w-5 text-accent"
           fill="none"
@@ -343,7 +341,7 @@ interface StepCardProps {
 const StepCard = component$<StepCardProps>(({ step, title, desc }) => {
   return (
     <div class="text-center">
-      <div class="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-accent text-sm font-bold text-white">
+      <div class="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-accent to-running text-sm font-bold text-white shadow-lg shadow-accent/20">
         {step}
       </div>
       <h3 class="font-semibold text-text">{title}</h3>

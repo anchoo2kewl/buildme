@@ -23,8 +23,8 @@ export default component$(() => {
   });
 
   return (
-    <div class="flex min-h-screen items-center justify-center bg-surface">
-      <div class="w-full max-w-sm rounded-lg border border-border bg-elevated p-8">
+    <div class="flex min-h-screen items-center justify-center" style={{ background: "radial-gradient(ellipse 80% 50% at 50% 0%, rgba(129,140,248,0.06), transparent), radial-gradient(ellipse 60% 40% at 80% 80%, rgba(52,211,153,0.04), transparent), var(--color-surface)" }}>
+      <div class="w-full max-w-sm rounded-xl border border-border bg-elevated/80 p-8 shadow-2xl backdrop-blur-xl">
         <h1 class="mb-1 text-2xl font-bold text-text">Create Account</h1>
         <p class="mb-6 text-sm text-muted">
           Invite only. You need an invite code to sign up.
@@ -81,7 +81,7 @@ export default component$(() => {
             <input
               type="text"
               bind:value={displayName}
-              class="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-text placeholder:text-muted focus:border-accent focus:outline-none"
+              class="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-text placeholder:text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
               placeholder="Your Name"
             />
           </div>
@@ -91,7 +91,7 @@ export default component$(() => {
               type="email"
               bind:value={email}
               required
-              class="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-text placeholder:text-muted focus:border-accent focus:outline-none"
+              class="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-text placeholder:text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
               placeholder="you@example.com"
             />
           </div>
@@ -102,7 +102,7 @@ export default component$(() => {
               bind:value={password}
               required
               minLength={8}
-              class="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-text placeholder:text-muted focus:border-accent focus:outline-none"
+              class="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-text placeholder:text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
             />
             <p class="mt-1 text-xs text-muted">
               Min 8 chars, uppercase, lowercase, digit
@@ -111,7 +111,7 @@ export default component$(() => {
           <button
             type="submit"
             disabled={loading.value}
-            class="w-full rounded-lg bg-accent px-4 py-2 font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+            class="w-full rounded-lg bg-gradient-to-r from-accent to-indigo-400 px-4 py-2 font-medium text-white shadow-lg shadow-accent/25 transition-all hover:shadow-accent/40 hover:brightness-110 disabled:opacity-50"
           >
             {loading.value ? "Creating..." : "Create Account"}
           </button>
