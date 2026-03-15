@@ -46,6 +46,7 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 	apikeyH := &APIKeyHandler{store: s}
 	adminH := &AdminHandler{store: s}
 	vsnapH := &VersionSnapshotHandler{store: s}
+	metricH := &MetricHandler{store: s}
 
 	// Health + version
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -90,6 +91,9 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 		// Version snapshots
 		r.Get("/api/version-overview", vsnapH.VersionOverview)
 
+		// Incidents (all projects)
+		r.Get("/api/incidents", metricH.ListIncidents)
+
 		// Admin settings (super admin only)
 		r.Get("/api/admin/email-settings", adminH.GetEmailSettings)
 		r.Put("/api/admin/email-settings", adminH.UpdateEmailSettings)
@@ -118,6 +122,10 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 
 			// Version snapshots (viewer+)
 			r.Get("/version-snapshots", vsnapH.VersionSnapshots)
+
+			// Metrics + Incidents (viewer+)
+			r.Get("/metrics", metricH.ListMetrics)
+			r.Get("/incidents", metricH.ListProjectIncidents)
 
 			// Builds (viewer+)
 			r.Get("/builds", buildH.List)

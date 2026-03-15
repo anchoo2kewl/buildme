@@ -2,7 +2,6 @@ package poller
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -213,6 +212,18 @@ func (vp *VersionPoller) checkEnv(ctx context.Context, project models.Project, e
 		return
 	}
 
+	// Extract and store structured metrics
+	if versionData != nil {
+		point := extractMetrics(versionData, project.ID, env, responseMS)
+		if point != nil {
+			if err := vp.store.CreateMetricPoint(ctx, point); err != nil {
+				slog.Error("version-poller: save metric point", "error", err, "project", project.Name, "env", env)
+			} else {
+				vp.checkIncidents(ctx, project, env, point)
+			}
+		}
+	}
+
 	// Broadcast version.updated if SHA changed
 	if sha != "" && prevSHA != "" && sha != prevSHA {
 		vp.hub.BroadcastVersionEvent(models.BuildEvent{
@@ -349,4 +360,171 @@ func minLen(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// extractMetrics pulls structured metrics from the version JSON response.
+func extractMetrics(data map[string]interface{}, projectID int64, env string, responseMS int64) *models.MetricPoint {
+	resources, _ := data["resources"].(map[string]interface{})
+	container, _ := data["container"].(map[string]interface{})
+
+	// Require at least some resource data
+	if resources == nil && container == nil {
+		return nil
+	}
+
+	point := &models.MetricPoint{
+		ProjectID:      projectID,
+		Env:            env,
+		ResponseTimeMS: responseMS,
+	}
+
+	if resources != nil {
+		point.MemoryAllocMB = toFloat64(resources["memory_alloc_mb"])
+		point.HeapInuseMB = toFloat64(resources["heap_inuse_mb"])
+		point.Goroutines = toInt(resources["goroutines"])
+		point.GCPauseMS = toFloat64(resources["gc_last_pause_ms"])
+	}
+	if container != nil {
+		point.ContainerMemoryMB = toFloat64(container["memory_usage_mb"])
+		point.ContainerMemoryLimitMB = toFloat64(container["memory_limit_mb"])
+		point.CPUUsageNS = toInt64(container["cpu_usage_ns"])
+	}
+
+	return point
+}
+
+func toFloat64(v interface{}) float64 {
+	switch n := v.(type) {
+	case float64:
+		return n
+	case int:
+		return float64(n)
+	case json.Number:
+		f, _ := n.Float64()
+		return f
+	}
+	return 0
+}
+
+func toInt(v interface{}) int {
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	case json.Number:
+		i, _ := n.Int64()
+		return int(i)
+	}
+	return 0
+}
+
+func toInt64(v interface{}) int64 {
+	switch n := v.(type) {
+	case float64:
+		return int64(n)
+	case int:
+		return int64(n)
+	case json.Number:
+		i, _ := n.Int64()
+		return i
+	}
+	return 0
+}
+
+// incidentThreshold defines a resource metric check.
+type incidentThreshold struct {
+	metric    string
+	value     func(*models.MetricPoint) float64
+	threshold float64
+	message   func(*models.MetricPoint) string
+}
+
+var incidentThresholds = []incidentThreshold{
+	{
+		metric:    "memory_alloc_mb",
+		value:     func(p *models.MetricPoint) float64 { return p.MemoryAllocMB },
+		threshold: 500,
+		message:   func(p *models.MetricPoint) string { return fmt.Sprintf("Memory alloc %.1f MB exceeds 500 MB", p.MemoryAllocMB) },
+	},
+	{
+		metric: "container_memory_pct",
+		value: func(p *models.MetricPoint) float64 {
+			if p.ContainerMemoryLimitMB <= 0 {
+				return 0
+			}
+			return (p.ContainerMemoryMB / p.ContainerMemoryLimitMB) * 100
+		},
+		threshold: 80,
+		message: func(p *models.MetricPoint) string {
+			pct := (p.ContainerMemoryMB / p.ContainerMemoryLimitMB) * 100
+			return fmt.Sprintf("Container memory %.0f%% (%.0f/%.0f MB) exceeds 80%%", pct, p.ContainerMemoryMB, p.ContainerMemoryLimitMB)
+		},
+	},
+	{
+		metric:    "goroutines",
+		value:     func(p *models.MetricPoint) float64 { return float64(p.Goroutines) },
+		threshold: 1000,
+		message:   func(p *models.MetricPoint) string { return fmt.Sprintf("Goroutines %d exceeds 1000", p.Goroutines) },
+	},
+	{
+		metric:    "gc_pause_ms",
+		value:     func(p *models.MetricPoint) float64 { return p.GCPauseMS },
+		threshold: 100,
+		message:   func(p *models.MetricPoint) string { return fmt.Sprintf("GC pause %.1f ms exceeds 100 ms", p.GCPauseMS) },
+	},
+	{
+		metric:    "response_time_ms",
+		value:     func(p *models.MetricPoint) float64 { return float64(p.ResponseTimeMS) },
+		threshold: 5000,
+		message:   func(p *models.MetricPoint) string { return fmt.Sprintf("Response time %d ms exceeds 5000 ms", p.ResponseTimeMS) },
+	},
+}
+
+// checkIncidents evaluates metric thresholds and creates debounced incidents.
+func (vp *VersionPoller) checkIncidents(ctx context.Context, project models.Project, env string, point *models.MetricPoint) {
+	for _, t := range incidentThresholds {
+		val := t.value(point)
+		if val <= t.threshold {
+			continue
+		}
+
+		// Debounce: skip if same incident in last 15 minutes
+		if vp.recentIncidentExists(ctx, project.ID, env, t.metric) {
+			continue
+		}
+
+		inc := &models.ResourceIncident{
+			ProjectID: project.ID,
+			Env:       env,
+			Metric:    t.metric,
+			Value:     val,
+			Threshold: t.threshold,
+			Message:   t.message(point),
+		}
+		if err := vp.store.CreateResourceIncident(ctx, inc); err != nil {
+			slog.Error("version-poller: save incident", "error", err)
+			continue
+		}
+
+		slog.Warn("version-poller: resource incident",
+			"project", project.Name, "env", env,
+			"metric", t.metric, "value", val, "threshold", t.threshold)
+
+		// Broadcast incident via WebSocket
+		vp.hub.BroadcastVersionEvent(models.BuildEvent{
+			Type:      "incident.created",
+			ProjectID: project.ID,
+		})
+	}
+}
+
+// recentIncidentExists checks for a debounce window on the same metric.
+func (vp *VersionPoller) recentIncidentExists(ctx context.Context, projectID int64, env, metric string) bool {
+	since := time.Now().Add(-15 * time.Minute)
+	exists, err := vp.store.HasRecentIncident(ctx, projectID, env, metric, since)
+	if err != nil {
+		return false
+	}
+	return exists
 }

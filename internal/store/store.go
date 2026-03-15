@@ -94,6 +94,17 @@ type Store interface {
 	ListVersionSnapshots(ctx context.Context, projectID int64, env string, limit int) ([]models.VersionSnapshot, error)
 	PruneVersionSnapshots(ctx context.Context, olderThan time.Time) error
 
+	// Metric Points
+	CreateMetricPoint(ctx context.Context, point *models.MetricPoint) error
+	ListMetricPoints(ctx context.Context, projectID int64, env string, since time.Time) ([]models.MetricPoint, error)
+	PruneMetricPoints(ctx context.Context, olderThan time.Time) error
+
+	// Resource Incidents
+	CreateResourceIncident(ctx context.Context, incident *models.ResourceIncident) error
+	ListResourceIncidents(ctx context.Context, projectID int64, limit int) ([]models.ResourceIncident, error)
+	HasRecentIncident(ctx context.Context, projectID int64, env, metric string, since time.Time) (bool, error)
+	PruneResourceIncidents(ctx context.Context, olderThan time.Time) error
+
 	// System-wide queries
 	ListAllProjects(ctx context.Context) ([]models.Project, error)
 	HasActiveBuilds(ctx context.Context) (bool, error)

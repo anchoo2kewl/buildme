@@ -842,6 +842,109 @@ func (s *SQLiteStore) PruneVersionSnapshots(ctx context.Context, olderThan time.
 	return err
 }
 
+// --- Metric Points ---
+
+func (s *SQLiteStore) CreateMetricPoint(ctx context.Context, p *models.MetricPoint) error {
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO metric_points (project_id, env, memory_alloc_mb, heap_inuse_mb, goroutines, gc_pause_ms, container_memory_mb, container_memory_limit_mb, cpu_usage_ns, response_time_ms)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ProjectID, p.Env, p.MemoryAllocMB, p.HeapInuseMB, p.Goroutines, p.GCPauseMS, p.ContainerMemoryMB, p.ContainerMemoryLimitMB, p.CPUUsageNS, p.ResponseTimeMS)
+	if err != nil {
+		return err
+	}
+	p.ID, _ = res.LastInsertId()
+	return nil
+}
+
+func (s *SQLiteStore) ListMetricPoints(ctx context.Context, projectID int64, env string, since time.Time) ([]models.MetricPoint, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, project_id, env, memory_alloc_mb, heap_inuse_mb, goroutines, gc_pause_ms, container_memory_mb, container_memory_limit_mb, cpu_usage_ns, response_time_ms, created_at
+		 FROM metric_points WHERE project_id = ? AND env = ? AND created_at >= ? ORDER BY created_at ASC`,
+		projectID, env, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var points []models.MetricPoint
+	for rows.Next() {
+		var p models.MetricPoint
+		if err := rows.Scan(&p.ID, &p.ProjectID, &p.Env, &p.MemoryAllocMB, &p.HeapInuseMB, &p.Goroutines, &p.GCPauseMS, &p.ContainerMemoryMB, &p.ContainerMemoryLimitMB, &p.CPUUsageNS, &p.ResponseTimeMS, &p.CreatedAt); err != nil {
+			return nil, err
+		}
+		points = append(points, p)
+	}
+	return points, rows.Err()
+}
+
+func (s *SQLiteStore) PruneMetricPoints(ctx context.Context, olderThan time.Time) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM metric_points WHERE created_at < ?`, olderThan)
+	return err
+}
+
+// --- Resource Incidents ---
+
+func (s *SQLiteStore) CreateResourceIncident(ctx context.Context, inc *models.ResourceIncident) error {
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO resource_incidents (project_id, env, metric, value, threshold, message)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		inc.ProjectID, inc.Env, inc.Metric, inc.Value, inc.Threshold, inc.Message)
+	if err != nil {
+		return err
+	}
+	inc.ID, _ = res.LastInsertId()
+	return nil
+}
+
+func (s *SQLiteStore) ListResourceIncidents(ctx context.Context, projectID int64, limit int) ([]models.ResourceIncident, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+
+	var query string
+	var args []any
+	if projectID > 0 {
+		query = `SELECT ri.id, ri.project_id, p.name, ri.env, ri.metric, ri.value, ri.threshold, ri.message, ri.created_at
+			 FROM resource_incidents ri JOIN projects p ON p.id = ri.project_id
+			 WHERE ri.project_id = ? ORDER BY ri.created_at DESC LIMIT ?`
+		args = []any{projectID, limit}
+	} else {
+		query = `SELECT ri.id, ri.project_id, p.name, ri.env, ri.metric, ri.value, ri.threshold, ri.message, ri.created_at
+			 FROM resource_incidents ri JOIN projects p ON p.id = ri.project_id
+			 ORDER BY ri.created_at DESC LIMIT ?`
+		args = []any{limit}
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var incidents []models.ResourceIncident
+	for rows.Next() {
+		var inc models.ResourceIncident
+		if err := rows.Scan(&inc.ID, &inc.ProjectID, &inc.ProjectName, &inc.Env, &inc.Metric, &inc.Value, &inc.Threshold, &inc.Message, &inc.CreatedAt); err != nil {
+			return nil, err
+		}
+		incidents = append(incidents, inc)
+	}
+	return incidents, rows.Err()
+}
+
+func (s *SQLiteStore) HasRecentIncident(ctx context.Context, projectID int64, env, metric string, since time.Time) (bool, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM resource_incidents WHERE project_id = ? AND env = ? AND metric = ? AND created_at > ?`,
+		projectID, env, metric, since).Scan(&count)
+	return count > 0, err
+}
+
+func (s *SQLiteStore) PruneResourceIncidents(ctx context.Context, olderThan time.Time) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM resource_incidents WHERE created_at < ?`, olderThan)
+	return err
+}
+
 func (s *SQLiteStore) ListAllProjects(ctx context.Context) ([]models.Project, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, name, slug, description, staging_url, uat_url, production_url, version_path, version_field, health_path, metadata, created_at, updated_at

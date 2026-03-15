@@ -199,3 +199,30 @@ export interface DashboardEntry {
   project: Project;
   builds: Build[];
 }
+
+export interface MetricPoint {
+  id: number;
+  project_id: number;
+  env: string;
+  memory_alloc_mb: number;
+  heap_inuse_mb: number;
+  goroutines: number;
+  gc_pause_ms: number;
+  container_memory_mb: number;
+  container_memory_limit_mb: number;
+  cpu_usage_ns: number;
+  response_time_ms: number;
+  created_at: string;
+}
+
+export interface ResourceIncident {
+  id: number;
+  project_id: number;
+  project_name?: string;
+  env: string;
+  metric: string;
+  value: number;
+  threshold: number;
+  message: string;
+  created_at: string;
+}

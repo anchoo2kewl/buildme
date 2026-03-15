@@ -1,5 +1,7 @@
-import { component$, type Signal } from "@builder.io/qwik";
-import type { EnvironmentStatus, ProbesSummary } from "~/lib/types";
+import { component$, useSignal, useVisibleTask$, type Signal } from "@builder.io/qwik";
+import type { EnvironmentStatus, MetricPoint, ResourceIncident, ProbesSummary } from "~/lib/types";
+import { fetchMetrics, fetchProjectIncidents } from "~/lib/api";
+import { MetricChart } from "~/components/charts/metric-chart";
 
 interface EnvironmentDetailProps {
   env: Signal<EnvironmentStatus | null>;
@@ -251,6 +253,9 @@ export const EnvironmentDetail = component$<EnvironmentDetailProps>(
               </Section>
             )}
 
+            {/* Metrics (24h) section — expandable */}
+            <MetricsPanel projectId={e.project_id} env={e.env} />
+
             {/* Probes section */}
             {probes && probes.regions && probes.regions.length > 0 && (
               <Section title="Probes">
@@ -337,6 +342,127 @@ const KV = component$<KVProps>(({ label, value, mono }) => {
       <span class={`text-text ${mono ? "font-mono" : ""}`}>
         {value.length > 30 ? value.substring(0, 30) + "..." : value}
       </span>
+    </div>
+  );
+});
+
+// --- Metrics Panel (expandable) ---
+
+interface MetricsPanelProps {
+  projectId: number;
+  env: string;
+}
+
+const MetricsPanel = component$<MetricsPanelProps>(({ projectId, env }) => {
+  const expanded = useSignal(false);
+  const metrics = useSignal<MetricPoint[] | null>(null);
+  const incidents = useSignal<ResourceIncident[] | null>(null);
+  const loading = useSignal(false);
+
+  useVisibleTask$(({ track }) => {
+    track(() => expanded.value);
+    if (!expanded.value) return;
+    if (metrics.value) return; // already loaded
+
+    loading.value = true;
+    Promise.all([
+      fetchMetrics(projectId, env, 24).catch(() => []),
+      fetchProjectIncidents(projectId, 20).catch(() => []),
+    ]).then(([m, inc]) => {
+      metrics.value = m;
+      incidents.value = inc;
+      loading.value = false;
+    });
+  });
+
+  const memoryData =
+    metrics.value?.map((p) => ({
+      time: p.created_at,
+      value: p.memory_alloc_mb,
+    })) ?? [];
+
+  const containerMemData =
+    metrics.value?.map((p) => ({
+      time: p.created_at,
+      value: p.container_memory_mb,
+    })) ?? [];
+
+  const goroutineData =
+    metrics.value?.map((p) => ({
+      time: p.created_at,
+      value: p.goroutines,
+    })) ?? [];
+
+  const responseData =
+    metrics.value?.map((p) => ({
+      time: p.created_at,
+      value: p.response_time_ms,
+    })) ?? [];
+
+  // Filter incidents for this env
+  const envIncidents = (incidents.value ?? [])
+    .filter((i) => i.env === env)
+    .map((i) => ({ time: i.created_at }));
+
+  return (
+    <div class="mb-4">
+      <button
+        class="mb-2 flex w-full items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted hover:text-text"
+        onClick$={() => {
+          expanded.value = !expanded.value;
+        }}
+      >
+        <span
+          class="inline-block transition-transform"
+          style={{ transform: expanded.value ? "rotate(90deg)" : "rotate(0)" }}
+        >
+          &#9654;
+        </span>
+        Metrics (24h)
+      </button>
+
+      {expanded.value && (
+        <div class="space-y-3">
+          {loading.value ? (
+            <div class="flex items-center justify-center rounded-lg border border-border bg-surface p-6">
+              <div class="h-5 w-5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+            </div>
+          ) : (
+            <>
+              <MetricChart
+                data={memoryData}
+                label="Memory Alloc"
+                color="#3b82f6"
+                unit="MB"
+                incidents={envIncidents}
+              />
+              {containerMemData.some((d) => d.value > 0) && (
+                <MetricChart
+                  data={containerMemData}
+                  label="Container Memory"
+                  color="#f97316"
+                  unit="MB"
+                  incidents={envIncidents}
+                />
+              )}
+              <MetricChart
+                data={goroutineData}
+                label="Goroutines"
+                color="#22c55e"
+                unit=""
+                incidents={envIncidents}
+              />
+              <MetricChart
+                data={responseData}
+                label="Response Time"
+                color="#a855f7"
+                unit="ms"
+                incidents={envIncidents}
+              />
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 });

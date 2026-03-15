@@ -290,6 +290,35 @@ type VersionSnapshot struct {
 	CreatedAt      time.Time `json:"created_at"`
 }
 
+// MetricPoint stores a structured time-series metric extracted from version data.
+type MetricPoint struct {
+	ID                    int64     `json:"id"`
+	ProjectID             int64     `json:"project_id"`
+	Env                   string    `json:"env"`
+	MemoryAllocMB         float64   `json:"memory_alloc_mb"`
+	HeapInuseMB           float64   `json:"heap_inuse_mb"`
+	Goroutines            int       `json:"goroutines"`
+	GCPauseMS             float64   `json:"gc_pause_ms"`
+	ContainerMemoryMB     float64   `json:"container_memory_mb"`
+	ContainerMemoryLimitMB float64  `json:"container_memory_limit_mb"`
+	CPUUsageNS            int64     `json:"cpu_usage_ns"`
+	ResponseTimeMS        int64     `json:"response_time_ms"`
+	CreatedAt             time.Time `json:"created_at"`
+}
+
+// ResourceIncident records a threshold breach for a resource metric.
+type ResourceIncident struct {
+	ID          int64     `json:"id"`
+	ProjectID   int64     `json:"project_id"`
+	ProjectName string    `json:"project_name,omitempty"`
+	Env         string    `json:"env"`
+	Metric      string    `json:"metric"`
+	Value       float64   `json:"value"`
+	Threshold   float64   `json:"threshold"`
+	Message     string    `json:"message"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
 // VersionOverviewEntry is the latest snapshot for a project+env, enriched with project name.
 type VersionOverviewEntry struct {
 	ProjectID      int64                  `json:"project_id"`

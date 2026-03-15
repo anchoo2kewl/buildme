@@ -57,3 +57,16 @@ export const fetchDashboard = () =>
 
 export const fetchVersionOverview = () =>
   get<import("~/lib/types").VersionOverviewEntry[]>("/version-overview");
+
+export const fetchMetrics = (projectId: number, env: string, hours = 24) =>
+  get<import("~/lib/types").MetricPoint[]>(
+    `/projects/${projectId}/metrics?env=${env}&hours=${hours}`,
+  );
+
+export const fetchIncidents = (limit = 50) =>
+  get<import("~/lib/types").ResourceIncident[]>(`/incidents?limit=${limit}`);
+
+export const fetchProjectIncidents = (projectId: number, limit = 20) =>
+  get<import("~/lib/types").ResourceIncident[]>(
+    `/projects/${projectId}/incidents?limit=${limit}`,
+  );

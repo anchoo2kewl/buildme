@@ -1,5 +1,5 @@
 import { component$, useSignal, useVisibleTask$, useComputed$, $, type Signal } from "@builder.io/qwik";
-import { fetchDrift, fetchDashboard, fetchVersionOverview } from "~/lib/api";
+import { fetchDrift, fetchDashboard, fetchVersionOverview, fetchIncidents } from "~/lib/api";
 import type {
   DriftDashboard,
   DashboardEntry,
@@ -9,6 +9,7 @@ import type {
   ProbesSummary,
   ProviderType,
   VersionOverviewEntry,
+  ResourceIncident,
 } from "~/lib/types";
 import { parseMetadata } from "~/lib/types";
 import { EnvironmentDetail } from "~/components/environments/environment-detail";
@@ -22,6 +23,7 @@ export default component$(() => {
   const drift = useSignal<DriftDashboard | null>(null);
   const dashboard = useSignal<DashboardEntry[] | null>(null);
   const versionOverview = useSignal<VersionOverviewEntry[] | null>(null);
+  const incidents = useSignal<ResourceIncident[]>([]);
   const selectedEnv = useSignal<EnvironmentStatus | null>(null);
   const loading = useSignal(true);
   const refreshing = useSignal(false);
@@ -29,14 +31,16 @@ export default component$(() => {
   const envFilter = useSignal<EnvFilter>("all");
 
   const doRefresh = $(async () => {
-    const [driftData, dashData, versionData] = await Promise.all([
+    const [driftData, dashData, versionData, incidentsData] = await Promise.all([
       fetchDrift().catch(() => null),
       fetchDashboard().catch(() => null),
       fetchVersionOverview().catch(() => null),
+      fetchIncidents(20).catch(() => []),
     ]);
     drift.value = driftData;
     dashboard.value = dashData;
     versionOverview.value = versionData;
+    incidents.value = incidentsData ?? [];
     lastChecked.value = new Date().toLocaleTimeString();
   });
 
@@ -59,7 +63,7 @@ export default component$(() => {
       }
 
       const unsub = ws.onEvent((event) => {
-        if (event.type === "version.updated" || event.type === "build.completed" || event.type === "build.created") {
+        if (event.type === "version.updated" || event.type === "build.completed" || event.type === "build.created" || event.type === "incident.created") {
           doRefresh();
         }
       });
@@ -135,6 +139,9 @@ export default component$(() => {
           </button>
         ))}
       </div>
+
+      {/* Recent Incidents Banner */}
+      {incidents.value.length > 0 && <IncidentsBanner incidents={incidents.value} />}
 
       {loading.value ? (
         <div class="flex items-center justify-center p-8">
@@ -619,3 +626,72 @@ const ProjectCard = component$<ProjectCardProps>(
     );
   },
 );
+
+// ─── Incidents Banner ─────────────────────────────
+
+interface IncidentsBannerProps {
+  incidents: ResourceIncident[];
+}
+
+const IncidentsBanner = component$<IncidentsBannerProps>(({ incidents }) => {
+  const collapsed = useSignal(false);
+
+  if (incidents.length === 0) return null;
+
+  return (
+    <div class="mb-4 rounded-lg border border-failure/30 bg-failure/5">
+      <button
+        class="flex w-full items-center justify-between px-4 py-2 text-left"
+        onClick$={() => {
+          collapsed.value = !collapsed.value;
+        }}
+      >
+        <div class="flex items-center gap-2">
+          <span class="inline-block h-2 w-2 rounded-full bg-failure" />
+          <span class="text-sm font-medium text-failure">
+            {incidents.length} Recent Incident{incidents.length > 1 ? "s" : ""}
+          </span>
+        </div>
+        <span
+          class="text-xs text-muted transition-transform"
+          style={{
+            transform: collapsed.value ? "rotate(0)" : "rotate(180deg)",
+          }}
+        >
+          &#9660;
+        </span>
+      </button>
+
+      {!collapsed.value && (
+        <div class="border-t border-failure/20 px-4 py-2">
+          <div class="space-y-1.5">
+            {incidents.map((inc) => (
+              <div
+                key={inc.id}
+                class="flex items-center gap-3 text-xs"
+              >
+                <span class="inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full bg-failure" />
+                <span class="font-medium text-text">
+                  {inc.project_name}
+                </span>
+                <span class="rounded bg-border/50 px-1.5 py-0.5 text-[10px] font-medium uppercase text-muted">
+                  {inc.env}
+                </span>
+                <span class="text-muted">{inc.metric}</span>
+                <span class="font-mono text-failure">
+                  {inc.value.toFixed(1)}
+                </span>
+                <span class="text-muted">
+                  / {inc.threshold.toFixed(0)}
+                </span>
+                <span class="ml-auto text-muted">
+                  {timeAgo(inc.created_at)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});

@@ -188,4 +188,30 @@ var migrations = []string{
 		created_at DATETIME NOT NULL DEFAULT (datetime('now'))
 	)`,
 	"CREATE INDEX IF NOT EXISTS idx_vs_project_env ON version_snapshots(project_id, env, created_at DESC)",
+	`CREATE TABLE IF NOT EXISTS metric_points (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+		env TEXT NOT NULL,
+		memory_alloc_mb REAL NOT NULL DEFAULT 0,
+		heap_inuse_mb REAL NOT NULL DEFAULT 0,
+		goroutines INTEGER NOT NULL DEFAULT 0,
+		gc_pause_ms REAL NOT NULL DEFAULT 0,
+		container_memory_mb REAL NOT NULL DEFAULT 0,
+		container_memory_limit_mb REAL NOT NULL DEFAULT 0,
+		cpu_usage_ns INTEGER NOT NULL DEFAULT 0,
+		response_time_ms INTEGER NOT NULL DEFAULT 0,
+		created_at DATETIME NOT NULL DEFAULT (datetime('now'))
+	)`,
+	"CREATE INDEX IF NOT EXISTS idx_mp_proj_env_time ON metric_points(project_id, env, created_at DESC)",
+	`CREATE TABLE IF NOT EXISTS resource_incidents (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+		env TEXT NOT NULL,
+		metric TEXT NOT NULL,
+		value REAL NOT NULL,
+		threshold REAL NOT NULL,
+		message TEXT NOT NULL DEFAULT '',
+		created_at DATETIME NOT NULL DEFAULT (datetime('now'))
+	)`,
+	"CREATE INDEX IF NOT EXISTS idx_ri_proj_env_time ON resource_incidents(project_id, env, created_at DESC)",
 }
