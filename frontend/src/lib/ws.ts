@@ -6,6 +6,7 @@ export class BuildMeWS {
   private ws: WebSocket | null = null;
   private callbacks: WSCallback[] = [];
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingMessages: string[] = [];
   private token: string;
 
   constructor(token: string) {
@@ -18,6 +19,14 @@ export class BuildMeWS {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const url = `${protocol}//${window.location.host}/api/ws?token=${this.token}`;
     this.ws = new WebSocket(url);
+
+    this.ws.onopen = () => {
+      // Flush queued messages
+      for (const msg of this.pendingMessages) {
+        this.ws?.send(msg);
+      }
+      this.pendingMessages = [];
+    };
 
     this.ws.onmessage = (event) => {
       try {
@@ -41,12 +50,20 @@ export class BuildMeWS {
     };
   }
 
+  private safeSend(msg: string) {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(msg);
+    } else {
+      this.pendingMessages.push(msg);
+    }
+  }
+
   subscribe(projectId: number) {
-    this.ws?.send(JSON.stringify({ type: "subscribe", project_id: projectId }));
+    this.safeSend(JSON.stringify({ type: "subscribe", project_id: projectId }));
   }
 
   unsubscribe(projectId: number) {
-    this.ws?.send(
+    this.safeSend(
       JSON.stringify({ type: "unsubscribe", project_id: projectId }),
     );
   }
