@@ -415,11 +415,27 @@ func (h *SyncHandler) ghGet(ctx context.Context, url string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
+// branchHeadResult holds the head commit info including parent SHAs for merge-aware drift detection.
+type branchHeadResult struct {
+	SHA       string
+	Message   string
+	Author    string
+	ParentSHAs []string
+}
+
 func (h *SyncHandler) fetchBranchHead(ctx context.Context, owner, repo, branch string) (sha, message, author string, err error) {
+	r, err := h.fetchBranchHeadFull(ctx, owner, repo, branch)
+	if err != nil {
+		return "", "", "", err
+	}
+	return r.SHA, r.Message, r.Author, nil
+}
+
+func (h *SyncHandler) fetchBranchHeadFull(ctx context.Context, owner, repo, branch string) (*branchHeadResult, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/commits/%s", owner, repo, branch)
 	data, err := h.ghGet(ctx, url)
 	if err != nil {
-		return "", "", "", err
+		return nil, err
 	}
 	var resp struct {
 		SHA    string `json:"sha"`
@@ -429,15 +445,27 @@ func (h *SyncHandler) fetchBranchHead(ctx context.Context, owner, repo, branch s
 				Name string `json:"name"`
 			} `json:"author"`
 		} `json:"commit"`
+		Parents []struct {
+			SHA string `json:"sha"`
+		} `json:"parents"`
 	}
 	if err := json.Unmarshal(data, &resp); err != nil {
-		return "", "", "", err
+		return nil, err
 	}
 	msg := resp.Commit.Message
 	if idx := strings.Index(msg, "\n"); idx > 0 {
 		msg = msg[:idx]
 	}
-	return resp.SHA, msg, resp.Commit.Author.Name, nil
+	var parents []string
+	for _, p := range resp.Parents {
+		parents = append(parents, p.SHA)
+	}
+	return &branchHeadResult{
+		SHA:        resp.SHA,
+		Message:    msg,
+		Author:     resp.Commit.Author.Name,
+		ParentSHAs: parents,
+	}, nil
 }
 
 type ghCheckRun struct {
@@ -749,6 +777,26 @@ func minLen(a, b int) int {
 	return b
 }
 
+// shaMatchesHeadOrParent returns true if the deployed SHA matches the branch head
+// or any of its parent commits. This handles image-promotion workflows where the
+// deployed binary has the original build commit baked in, but the branch head is
+// a merge commit whose parent is that build commit.
+func shaMatchesHeadOrParent(deployedShort, headShort string, parentSHAs []string) bool {
+	if deployedShort == headShort {
+		return true
+	}
+	for _, parent := range parentSHAs {
+		parentShort := parent
+		if len(parentShort) > 7 {
+			parentShort = parentShort[:7]
+		}
+		if deployedShort == parentShort {
+			return true
+		}
+	}
+	return false
+}
+
 // DriftCheck fetches deployed versions and health from each project's environments.
 func (h *SyncHandler) DriftCheck(w http.ResponseWriter, r *http.Request) {
 	user := UserFromCtx(r.Context())
@@ -786,7 +834,7 @@ func (h *SyncHandler) DriftCheck(w http.ResponseWriter, r *http.Request) {
 	type branchKey struct {
 		owner, repo, branch string
 	}
-	branchHeads := make(map[branchKey]string)
+	branchHeads := make(map[branchKey]*branchHeadResult)
 	var branchMu sync.Mutex
 
 	for i, chk := range checks {
@@ -840,27 +888,28 @@ func (h *SyncHandler) DriftCheck(w http.ResponseWriter, r *http.Request) {
 				}
 				key := branchKey{prov.RepoOwner, prov.RepoName, branch}
 				branchMu.Lock()
-				head, exists := branchHeads[key]
+				headResult, exists := branchHeads[key]
 				branchMu.Unlock()
 
 				if !exists {
-					headSHA, _, _, err := h.fetchBranchHead(r.Context(), prov.RepoOwner, prov.RepoName, branch)
+					result, err := h.fetchBranchHeadFull(r.Context(), prov.RepoOwner, prov.RepoName, branch)
 					if err == nil {
 						branchMu.Lock()
-						branchHeads[key] = headSHA
+						branchHeads[key] = result
 						branchMu.Unlock()
-						head = headSHA
+						headResult = result
 					}
 				}
 
-				if head != "" {
-					es.BranchHeadSHA = head[:minLen(len(head), 7)]
+				if headResult != nil && headResult.SHA != "" {
+					es.BranchHeadSHA = headResult.SHA[:minLen(len(headResult.SHA), 7)]
 					deployedShort := sha
 					if len(deployedShort) > 7 {
 						deployedShort = deployedShort[:7]
 					}
-					headShort := head[:minLen(len(head), 7)]
-					es.IsDrifted = deployedShort != headShort
+					headShort := headResult.SHA[:minLen(len(headResult.SHA), 7)]
+					// Check if deployed SHA matches head or any parent (handles merge/promote flows)
+					es.IsDrifted = !shaMatchesHeadOrParent(deployedShort, headShort, headResult.ParentSHAs)
 				}
 			}
 

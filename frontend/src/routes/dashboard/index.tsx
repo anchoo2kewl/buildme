@@ -276,11 +276,13 @@ const ProjectCard = component$<ProjectCardProps>(
     // Find the main branch build (latest)
     const mainBuild = builds.find((b) => b.branch === "main") ?? builds[0];
 
-    // Extract probes from any environment's version_info
+    // Extract probes — prefer production (where probes connect), fall back to any env
     const probes = dp.environments.reduce<ProbesSummary | null>((acc, e) => {
-      if (acc) return acc;
       const p = e.version_info?.["probes"] as ProbesSummary | undefined;
-      return p ?? null;
+      if (!p) return acc;
+      // Prefer the environment with more connected probes
+      if (!acc || (p.connected ?? 0) > (acc.connected ?? 0)) return p;
+      return acc;
     }, null);
 
     return (
@@ -356,6 +358,15 @@ const ProjectCard = component$<ProjectCardProps>(
               | undefined;
             const backend = vi?.["backend"] as
               | Record<string, unknown>
+              | undefined;
+            const frontend = vi?.["frontend"] as
+              | Record<string, unknown>
+              | undefined;
+            const database = vi?.["database"] as
+              | Record<string, unknown>
+              | undefined;
+            const envProbes = vi?.["probes"] as
+              | { total?: number; connected?: number }
               | undefined;
             const ports = meta.ports?.[env];
 
@@ -439,26 +450,38 @@ const ProjectCard = component$<ProjectCardProps>(
                   {typeof backend?.["go_version"] === "string" && (
                     <span>{String(backend["go_version"])}</span>
                   )}
+                  {typeof frontend?.["version"] === "string" && (
+                    <span>v{String(frontend["version"])}</span>
+                  )}
+                  {typeof frontend?.["nodeVersion"] === "string" && (
+                    <span>{String(frontend["nodeVersion"])}</span>
+                  )}
                 </div>
 
-                {/* Resource summary */}
-                {!!vi?.["resources"] && (
-                  <div class="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-muted">
-                    {typeof (vi["resources"] as Record<string, unknown>)?.["memory_alloc_mb"] === "number" && (
-                      <span>
-                        {((vi["resources"] as Record<string, unknown>)["memory_alloc_mb"] as number).toFixed(1)}MB
-                      </span>
-                    )}
-                    {typeof (vi["resources"] as Record<string, unknown>)?.["goroutines"] === "number" && (
-                      <span>
-                        {Number((vi["resources"] as Record<string, unknown>)["goroutines"])} goroutines
-                      </span>
-                    )}
-                    {typeof (vi["database"] as Record<string, unknown>)?.["type"] === "string" && (
-                      <span>{String((vi["database"] as Record<string, unknown>)["type"])}</span>
-                    )}
-                  </div>
-                )}
+                {/* DB + resources */}
+                <div class="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted">
+                  {typeof database?.["current_version"] === "number" && (
+                    <span>
+                      db v{Number(database["current_version"])}
+                      {database["up_to_date"] === true ? "" : " (pending)"}
+                    </span>
+                  )}
+                  {!!vi?.["resources"] && typeof (vi["resources"] as Record<string, unknown>)?.["memory_alloc_mb"] === "number" && (
+                    <span>
+                      {((vi["resources"] as Record<string, unknown>)["memory_alloc_mb"] as number).toFixed(1)}MB
+                    </span>
+                  )}
+                  {!!vi?.["resources"] && typeof (vi["resources"] as Record<string, unknown>)?.["goroutines"] === "number" && (
+                    <span>
+                      {Number((vi["resources"] as Record<string, unknown>)["goroutines"])} gr
+                    </span>
+                  )}
+                  {envProbes && typeof envProbes.total === "number" && envProbes.total > 0 && (
+                    <span>
+                      {envProbes.connected}/{envProbes.total} probes
+                    </span>
+                  )}
+                </div>
 
                 {/* Container metrics */}
                 {!!vi?.["container"] && (
