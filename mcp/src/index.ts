@@ -2,7 +2,7 @@ import express from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
-import { BuildMeClient, User, DashboardEntry, Build, DriftEntry } from "./api.js";
+import { BuildMeClient, User, DashboardEntry, Build, DriftEntry, VersionOverviewEntry } from "./api.js";
 
 const BUILDME_API_URL = process.env.BUILDME_API_URL || "https://build.biswas.me";
 const PORT = parseInt(process.env.PORT || "3001", 10);
@@ -73,6 +73,7 @@ interface ProjectMetadata {
   tech_stack?: string[];
   ports?: Record<string, number[]>;
   mcp_url?: string;
+  custom_headers?: Record<string, Record<string, string>>;
 }
 
 function parseMetadata(raw?: string): ProjectMetadata {
@@ -380,6 +381,100 @@ function createServer(client: BuildMeClient, cachedUser?: User): McpServer {
     async ({ verbose }) => {
       const health = await client.healthCheck();
       return { content: [{ type: "text" as const, text: formatResponse(health, verbose) }] };
+    }
+  );
+
+  // --- get_version_overview ---
+  server.tool(
+    "get_version_overview",
+    "Latest version/health/resources for all projects and environments (from cached snapshots)",
+    {
+      verbose: z.boolean().optional().describe("Return full details (default: false)"),
+    },
+    async ({ verbose }) => {
+      const data = await client.getVersionOverview();
+      const result = verbose
+        ? data
+        : data.map((e: VersionOverviewEntry) => ({
+            project: e.project_name,
+            env: e.env,
+            sha: e.deployed_sha?.substring(0, 7),
+            health: e.health_status,
+            response_ms: e.response_time_ms,
+            checked_at: e.checked_at,
+          }));
+      return { content: [{ type: "text" as const, text: formatResponse(result, verbose) }] };
+    }
+  );
+
+  // --- get_version_history ---
+  server.tool(
+    "get_version_history",
+    "Historical version snapshots for a project+environment",
+    {
+      project_id: z.string().describe("Project ID"),
+      env: z.string().optional().describe("Environment: staging, uat, production (default: production)"),
+      limit: z.number().optional().describe("Max results (default: 50)"),
+      verbose: z.boolean().optional().describe("Return full details (default: false)"),
+    },
+    async ({ project_id, env, limit, verbose }) => {
+      const data = await client.getVersionSnapshots(project_id, { env, limit });
+      const result = verbose
+        ? data
+        : data.map((s) => ({
+            sha: s.deployed_sha?.substring(0, 7),
+            health: s.health_status,
+            response_ms: s.response_time_ms,
+            at: s.created_at,
+          }));
+      return { content: [{ type: "text" as const, text: formatResponse(result, verbose) }] };
+    }
+  );
+
+  // --- update_project_headers ---
+  server.tool(
+    "update_project_headers",
+    "Set custom HTTP headers per project per environment (e.g., Cloudflare Access tokens)",
+    {
+      project_id: z.string().describe("Project ID"),
+      env: z.enum(["staging", "uat", "production"]).describe("Environment"),
+      headers: z
+        .record(z.string())
+        .describe("Header key-value pairs to set. Pass empty object to clear."),
+      verbose: z.boolean().optional().describe("Return full details (default: false)"),
+    },
+    async ({ project_id, env, headers: newHeaders, verbose }) => {
+      // Get existing project to merge metadata
+      const project = await client.getProject(project_id);
+      const meta = parseMetadata(project.metadata);
+      if (!meta.custom_headers) meta.custom_headers = {};
+
+      if (Object.keys(newHeaders).length === 0) {
+        delete meta.custom_headers[env];
+      } else {
+        meta.custom_headers[env] = newHeaders;
+      }
+
+      // Clean up empty custom_headers
+      if (Object.keys(meta.custom_headers).length === 0) {
+        delete meta.custom_headers;
+      }
+
+      const updated = await client.updateProject(project_id, {
+        metadata: JSON.stringify(meta),
+      });
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: formatResponse(
+              { message: `Headers updated for ${env}`, project_id: updated.id },
+              verbose,
+            ),
+          },
+        ],
+      };
     }
   );
 

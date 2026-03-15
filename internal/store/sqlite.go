@@ -785,6 +785,90 @@ func (s *SQLiteStore) GetSettings(ctx context.Context, prefix string) (map[strin
 	return settings, rows.Err()
 }
 
+// --- Version Snapshots ---
+
+func (s *SQLiteStore) CreateVersionSnapshot(ctx context.Context, snap *models.VersionSnapshot) error {
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO version_snapshots (project_id, env, version_info, deployed_sha, health_status, response_time_ms)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		snap.ProjectID, snap.Env, snap.VersionInfo, snap.DeployedSHA, snap.HealthStatus, snap.ResponseTimeMS)
+	if err != nil {
+		return err
+	}
+	snap.ID, _ = res.LastInsertId()
+	return nil
+}
+
+func (s *SQLiteStore) GetLatestVersionSnapshot(ctx context.Context, projectID int64, env string) (*models.VersionSnapshot, error) {
+	snap := &models.VersionSnapshot{}
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, project_id, env, version_info, deployed_sha, health_status, response_time_ms, created_at
+		 FROM version_snapshots WHERE project_id = ? AND env = ? ORDER BY created_at DESC LIMIT 1`,
+		projectID, env).
+		Scan(&snap.ID, &snap.ProjectID, &snap.Env, &snap.VersionInfo, &snap.DeployedSHA, &snap.HealthStatus, &snap.ResponseTimeMS, &snap.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return snap, err
+}
+
+func (s *SQLiteStore) ListVersionSnapshots(ctx context.Context, projectID int64, env string, limit int) ([]models.VersionSnapshot, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, project_id, env, version_info, deployed_sha, health_status, response_time_ms, created_at
+		 FROM version_snapshots WHERE project_id = ? AND env = ? ORDER BY created_at DESC LIMIT ?`,
+		projectID, env, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var snaps []models.VersionSnapshot
+	for rows.Next() {
+		var snap models.VersionSnapshot
+		if err := rows.Scan(&snap.ID, &snap.ProjectID, &snap.Env, &snap.VersionInfo, &snap.DeployedSHA, &snap.HealthStatus, &snap.ResponseTimeMS, &snap.CreatedAt); err != nil {
+			return nil, err
+		}
+		snaps = append(snaps, snap)
+	}
+	return snaps, rows.Err()
+}
+
+func (s *SQLiteStore) PruneVersionSnapshots(ctx context.Context, olderThan time.Time) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM version_snapshots WHERE created_at < ?`, olderThan)
+	return err
+}
+
+func (s *SQLiteStore) ListAllProjects(ctx context.Context) ([]models.Project, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, name, slug, description, staging_url, uat_url, production_url, version_path, version_field, health_path, metadata, created_at, updated_at
+		 FROM projects ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var projects []models.Project
+	for rows.Next() {
+		var p models.Project
+		if err := rows.Scan(&p.ID, &p.Name, &p.Slug, &p.Description, &p.StagingURL, &p.UATURL, &p.ProductionURL, &p.VersionPath, &p.VersionField, &p.HealthPath, &p.Metadata, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+		projects = append(projects, p)
+	}
+	return projects, rows.Err()
+}
+
+func (s *SQLiteStore) HasActiveBuilds(ctx context.Context) (bool, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM builds WHERE status IN ('running', 'queued')`).Scan(&count)
+	return count > 0, err
+}
+
 // --- Admin ---
 
 func (s *SQLiteStore) ListAllUsers(ctx context.Context) ([]models.User, error) {

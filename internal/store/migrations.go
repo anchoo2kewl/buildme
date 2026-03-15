@@ -177,4 +177,15 @@ var migrations = []string{
 	"CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id)",
 	"CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash)",
 	"ALTER TABLE projects ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'",
+	`CREATE TABLE IF NOT EXISTS version_snapshots (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+		env TEXT NOT NULL,
+		version_info TEXT NOT NULL DEFAULT '{}',
+		deployed_sha TEXT NOT NULL DEFAULT '',
+		health_status INTEGER NOT NULL DEFAULT 0,
+		response_time_ms INTEGER NOT NULL DEFAULT 0,
+		created_at DATETIME NOT NULL DEFAULT (datetime('now'))
+	)`,
+	"CREATE INDEX IF NOT EXISTS idx_vs_project_env ON version_snapshots(project_id, env, created_at DESC)",
 }

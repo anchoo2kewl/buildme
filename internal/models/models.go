@@ -277,3 +277,27 @@ type DriftProject struct {
 type DriftDashboard struct {
 	Projects []DriftProject `json:"projects"`
 }
+
+// VersionSnapshot stores a point-in-time version/health check for a project environment.
+type VersionSnapshot struct {
+	ID             int64     `json:"id"`
+	ProjectID      int64     `json:"project_id"`
+	Env            string    `json:"env"`
+	VersionInfo    string    `json:"version_info"`
+	DeployedSHA    string    `json:"deployed_sha"`
+	HealthStatus   int       `json:"health_status"`
+	ResponseTimeMS int64     `json:"response_time_ms"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+// VersionOverviewEntry is the latest snapshot for a project+env, enriched with project name.
+type VersionOverviewEntry struct {
+	ProjectID      int64                  `json:"project_id"`
+	ProjectName    string                 `json:"project_name"`
+	Env            string                 `json:"env"`
+	VersionInfo    map[string]interface{} `json:"version_info"`
+	DeployedSHA    string                 `json:"deployed_sha"`
+	HealthStatus   int                    `json:"health_status"`
+	ResponseTimeMS int64                  `json:"response_time_ms"`
+	CheckedAt      string                 `json:"checked_at"`
+}

@@ -54,3 +54,6 @@ export const fetchDrift = () =>
 
 export const fetchDashboard = () =>
   get<import("~/lib/types").DashboardEntry[]>("/dashboard");
+
+export const fetchVersionOverview = () =>
+  get<import("~/lib/types").VersionOverviewEntry[]>("/version-overview");

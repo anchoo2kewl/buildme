@@ -67,6 +67,11 @@ func (h *Hub) Unregister(c *Client) {
 	h.unregister <- c
 }
 
+// BroadcastVersionEvent sends a version event to all clients subscribed to the project.
+func (h *Hub) BroadcastVersionEvent(event models.BuildEvent) {
+	h.BroadcastBuildEvent(event)
+}
+
 // BroadcastBuildEvent sends a build event to all clients subscribed to the project.
 func (h *Hub) BroadcastBuildEvent(event models.BuildEvent) {
 	data, err := json.Marshal(event)

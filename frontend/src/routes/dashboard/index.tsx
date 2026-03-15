@@ -1,5 +1,5 @@
 import { component$, useSignal, useVisibleTask$, useComputed$, $, type Signal } from "@builder.io/qwik";
-import { fetchDrift, fetchDashboard } from "~/lib/api";
+import { fetchDrift, fetchDashboard, fetchVersionOverview } from "~/lib/api";
 import type {
   DriftDashboard,
   DashboardEntry,
@@ -8,6 +8,7 @@ import type {
   Build,
   ProbesSummary,
   ProviderType,
+  VersionOverviewEntry,
 } from "~/lib/types";
 import { parseMetadata } from "~/lib/types";
 import { EnvironmentDetail } from "~/components/environments/environment-detail";
@@ -20,6 +21,7 @@ const ENVS_ORDER = ["production", "staging", "uat"] as const;
 export default component$(() => {
   const drift = useSignal<DriftDashboard | null>(null);
   const dashboard = useSignal<DashboardEntry[] | null>(null);
+  const versionOverview = useSignal<VersionOverviewEntry[] | null>(null);
   const selectedEnv = useSignal<EnvironmentStatus | null>(null);
   const loading = useSignal(true);
   const refreshing = useSignal(false);
@@ -27,18 +29,46 @@ export default component$(() => {
   const envFilter = useSignal<EnvFilter>("all");
 
   const doRefresh = $(async () => {
-    const [driftData, dashData] = await Promise.all([
+    const [driftData, dashData, versionData] = await Promise.all([
       fetchDrift().catch(() => null),
       fetchDashboard().catch(() => null),
+      fetchVersionOverview().catch(() => null),
     ]);
     drift.value = driftData;
     dashboard.value = dashData;
+    versionOverview.value = versionData;
     lastChecked.value = new Date().toLocaleTimeString();
   });
 
-  useVisibleTask$(async () => {
+  useVisibleTask$(async ({ cleanup }) => {
     await doRefresh();
     loading.value = false;
+
+    // Listen for version.updated and build events via WebSocket
+    const token = typeof window !== "undefined" ? localStorage.getItem("buildme_token") : null;
+    if (token && typeof window !== "undefined") {
+      const { BuildMeWS } = await import("~/lib/ws");
+      const ws = new BuildMeWS(token);
+      ws.connect();
+
+      // Subscribe to all projects once drift data is loaded
+      if (drift.value?.projects) {
+        for (const dp of drift.value.projects) {
+          ws.subscribe(dp.project.id);
+        }
+      }
+
+      const unsub = ws.onEvent((event) => {
+        if (event.type === "version.updated" || event.type === "build.completed" || event.type === "build.created") {
+          doRefresh();
+        }
+      });
+
+      cleanup(() => {
+        unsub();
+        ws.disconnect();
+      });
+    }
   });
 
   // Merge drift + builds into unified card data
@@ -396,23 +426,23 @@ const ProjectCard = component$<ProjectCardProps>(
                     </span>
                   )}
                   {typeof runtime?.["hostname"] === "string" && (
-                    <span>{runtime["hostname"]}</span>
+                    <span>{String(runtime["hostname"])}</span>
                   )}
                   {typeof backend?.["platform"] === "string" && (
-                    <span>{backend["platform"]}</span>
+                    <span>{String(backend["platform"])}</span>
                   )}
                   {typeof runtime?.["uptime_seconds"] === "number" && (
                     <span>
-                      up {formatUptime(runtime["uptime_seconds"])}
+                      up {formatUptime(runtime["uptime_seconds"] as number)}
                     </span>
                   )}
                   {typeof backend?.["go_version"] === "string" && (
-                    <span>{backend["go_version"]}</span>
+                    <span>{String(backend["go_version"])}</span>
                   )}
                 </div>
 
                 {/* Resource summary */}
-                {vi?.["resources"] && (
+                {!!vi?.["resources"] && (
                   <div class="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-muted">
                     {typeof (vi["resources"] as Record<string, unknown>)?.["memory_alloc_mb"] === "number" && (
                       <span>
@@ -421,7 +451,24 @@ const ProjectCard = component$<ProjectCardProps>(
                     )}
                     {typeof (vi["resources"] as Record<string, unknown>)?.["goroutines"] === "number" && (
                       <span>
-                        {(vi["resources"] as Record<string, unknown>)["goroutines"]} goroutines
+                        {Number((vi["resources"] as Record<string, unknown>)["goroutines"])} goroutines
+                      </span>
+                    )}
+                    {typeof (vi["database"] as Record<string, unknown>)?.["type"] === "string" && (
+                      <span>{String((vi["database"] as Record<string, unknown>)["type"])}</span>
+                    )}
+                  </div>
+                )}
+
+                {/* Container metrics */}
+                {!!vi?.["container"] && (
+                  <div class="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted">
+                    {typeof (vi["container"] as Record<string, unknown>)?.["memory_usage_mb"] === "number" && (
+                      <span>
+                        container{" "}
+                        {((vi["container"] as Record<string, unknown>)["memory_usage_mb"] as number).toFixed(0)}MB
+                        {typeof (vi["container"] as Record<string, unknown>)?.["memory_limit_mb"] === "number" &&
+                          `/${((vi["container"] as Record<string, unknown>)["memory_limit_mb"] as number).toFixed(0)}MB`}
                       </span>
                     )}
                   </div>

@@ -48,6 +48,7 @@ export interface ProjectMetadata {
   tech_stack?: string[];
   ports?: Record<string, number[]>;
   mcp_url?: string;
+  custom_headers?: Record<string, Record<string, string>>;
 }
 
 export interface Project {
@@ -181,6 +182,17 @@ export interface DriftProject {
 
 export interface DriftDashboard {
   projects: DriftProject[];
+}
+
+export interface VersionOverviewEntry {
+  project_id: number;
+  project_name: string;
+  env: string;
+  version_info: Record<string, unknown> | null;
+  deployed_sha: string;
+  health_status: number;
+  response_time_ms: number;
+  checked_at: string;
 }
 
 export interface DashboardEntry {

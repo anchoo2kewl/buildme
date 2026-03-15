@@ -88,6 +88,16 @@ type Store interface {
 	SetSetting(ctx context.Context, key string, value string) error
 	GetSettings(ctx context.Context, prefix string) (map[string]string, error)
 
+	// Version Snapshots
+	CreateVersionSnapshot(ctx context.Context, snap *models.VersionSnapshot) error
+	GetLatestVersionSnapshot(ctx context.Context, projectID int64, env string) (*models.VersionSnapshot, error)
+	ListVersionSnapshots(ctx context.Context, projectID int64, env string, limit int) ([]models.VersionSnapshot, error)
+	PruneVersionSnapshots(ctx context.Context, olderThan time.Time) error
+
+	// System-wide queries
+	ListAllProjects(ctx context.Context) ([]models.Project, error)
+	HasActiveBuilds(ctx context.Context) (bool, error)
+
 	// Admin
 	ListAllUsers(ctx context.Context) ([]models.User, error)
 	SetUserSuperAdmin(ctx context.Context, userID int64, isSuperAdmin bool) error

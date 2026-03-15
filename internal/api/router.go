@@ -45,12 +45,13 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 	syncH := &SyncHandler{store: s, cfg: cfg, client: &http.Client{Timeout: 30 * time.Second}, dispatcher: dispatcher}
 	apikeyH := &APIKeyHandler{store: s}
 	adminH := &AdminHandler{store: s}
+	vsnapH := &VersionSnapshotHandler{store: s}
 
 	// Health + version
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		jsonResp(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
-	r.Get("/api/version", VersionHandler)
+	r.Get("/api/version", versionHandler(cfg))
 
 	// Public auth routes
 	r.Post("/api/auth/signup", authH.Signup)
@@ -86,6 +87,9 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 		r.Post("/api/sync", syncH.SyncAll)
 		r.Get("/api/drift", syncH.DriftCheck)
 
+		// Version snapshots
+		r.Get("/api/version-overview", vsnapH.VersionOverview)
+
 		// Admin settings (super admin only)
 		r.Get("/api/admin/email-settings", adminH.GetEmailSettings)
 		r.Put("/api/admin/email-settings", adminH.UpdateEmailSettings)
@@ -111,6 +115,9 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 				r.Use(RequireRole(models.RoleOwner))
 				r.Delete("/", projectH.Delete)
 			})
+
+			// Version snapshots (viewer+)
+			r.Get("/version-snapshots", vsnapH.VersionSnapshots)
 
 			// Builds (viewer+)
 			r.Get("/builds", buildH.List)

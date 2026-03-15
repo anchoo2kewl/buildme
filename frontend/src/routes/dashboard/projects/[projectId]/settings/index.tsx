@@ -1,4 +1,4 @@
-import { component$, useSignal, useVisibleTask$ } from "@builder.io/qwik";
+import { component$, useSignal, useVisibleTask$, useStore } from "@builder.io/qwik";
 import { useLocation, type StaticGenerateHandler } from "@builder.io/qwik-city";
 
 export const onStaticGenerate: StaticGenerateHandler = async () => {
@@ -41,6 +41,21 @@ export default component$(() => {
   const portsUat = useSignal("");
   const mcpUrl = useSignal("");
 
+  // Custom headers
+  const headersSaving = useSignal(false);
+  const headersSuccess = useSignal(false);
+  const headersError = useSignal("");
+  const headersExpanded = useSignal(false);
+  const customHeaders = useStore<{
+    staging: Array<{ key: string; value: string }>;
+    uat: Array<{ key: string; value: string }>;
+    production: Array<{ key: string; value: string }>;
+  }>({
+    staging: [],
+    uat: [],
+    production: [],
+  });
+
   useVisibleTask$(async () => {
     projectId.value = getRouteParams().projectId || projectId.value;
     try {
@@ -63,6 +78,15 @@ export default component$(() => {
       portsStaging.value = (meta.ports?.staging || []).join(", ");
       portsUat.value = (meta.ports?.uat || []).join(", ");
       mcpUrl.value = meta.mcp_url || "";
+      // Load custom headers
+      if (meta.custom_headers) {
+        for (const env of ["staging", "uat", "production"] as const) {
+          const hdrs = meta.custom_headers[env];
+          if (hdrs) {
+            customHeaders[env] = Object.entries(hdrs).map(([key, value]) => ({ key, value }));
+          }
+        }
+      }
     } catch {
       // ignore
     }
@@ -351,6 +375,169 @@ export default component$(() => {
               </button>
             </div>
           </form>
+        </section>
+
+        {/* Custom Headers */}
+        <section>
+          <button
+            type="button"
+            class="mb-4 flex w-full items-center justify-between text-left"
+            onClick$={() => (headersExpanded.value = !headersExpanded.value)}
+          >
+            <h2 class="text-lg font-semibold text-text">Custom Headers</h2>
+            <span class="text-muted">{headersExpanded.value ? "▾" : "▸"}</span>
+          </button>
+
+          {headersExpanded.value && (
+            <div>
+              <p class="mb-4 text-sm text-muted">
+                Set custom HTTP headers sent when polling version/health endpoints per
+                environment. Useful for Cloudflare Access tokens or API keys.
+              </p>
+
+              {headersError.value && (
+                <div class="mb-4 rounded-lg bg-failure/20 px-4 py-2 text-sm text-failure">
+                  {headersError.value}
+                </div>
+              )}
+              {headersSuccess.value && (
+                <div class="mb-4 rounded-lg bg-success/20 px-4 py-2 text-sm text-success">
+                  Custom headers saved.
+                </div>
+              )}
+
+              <div class="space-y-4 rounded-lg border border-border bg-elevated p-4">
+                {(["staging", "uat", "production"] as const).map((env) => (
+                  <div key={env}>
+                    <div class="mb-2 flex items-center justify-between">
+                      <span class="text-xs font-semibold uppercase tracking-wider text-muted">
+                        {env}
+                      </span>
+                      <button
+                        type="button"
+                        class="text-xs text-accent hover:underline"
+                        onClick$={() => {
+                          customHeaders[env] = [...customHeaders[env], { key: "", value: "" }];
+                        }}
+                      >
+                        + Add Header
+                      </button>
+                    </div>
+                    {customHeaders[env].length === 0 ? (
+                      <p class="text-xs text-muted">No custom headers</p>
+                    ) : (
+                      <div class="space-y-2">
+                        {customHeaders[env].map((pair, idx) => (
+                          <div key={idx} class="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={pair.key}
+                              placeholder="Header-Name"
+                              onInput$={(e: Event) => {
+                                const val = (e.target as HTMLInputElement).value;
+                                customHeaders[env] = customHeaders[env].map((p, i) =>
+                                  i === idx ? { ...p, key: val } : p,
+                                );
+                              }}
+                              class="w-1/3 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-text placeholder:text-muted focus:border-accent focus:outline-none"
+                            />
+                            <input
+                              type="text"
+                              value={
+                                pair.value.length > 8
+                                  ? pair.value.substring(0, 8) + "***"
+                                  : pair.value
+                              }
+                              placeholder="value"
+                              onFocus$={(e: Event) => {
+                                // Show full value on focus
+                                (e.target as HTMLInputElement).value = pair.value;
+                              }}
+                              onBlur$={(e: Event) => {
+                                const val = (e.target as HTMLInputElement).value;
+                                customHeaders[env] = customHeaders[env].map((p, i) =>
+                                  i === idx ? { ...p, value: val } : p,
+                                );
+                                // Re-mask
+                                if (val.length > 8) {
+                                  (e.target as HTMLInputElement).value =
+                                    val.substring(0, 8) + "***";
+                                }
+                              }}
+                              class="flex-1 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-text placeholder:text-muted focus:border-accent focus:outline-none"
+                            />
+                            <button
+                              type="button"
+                              class="text-xs text-failure hover:underline"
+                              onClick$={() => {
+                                customHeaders[env] = customHeaders[env].filter(
+                                  (_, i) => i !== idx,
+                                );
+                              }}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                <div class="flex justify-end pt-2">
+                  <button
+                    type="button"
+                    disabled={headersSaving.value}
+                    class="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+                    onClick$={async () => {
+                      headersSaving.value = true;
+                      headersError.value = "";
+                      headersSuccess.value = false;
+                      try {
+                        // Build custom_headers object from pairs
+                        const ch: Record<string, Record<string, string>> = {};
+                        for (const env of ["staging", "uat", "production"] as const) {
+                          const pairs = customHeaders[env].filter(
+                            (p) => p.key.trim() !== "",
+                          );
+                          if (pairs.length > 0) {
+                            ch[env] = {};
+                            for (const p of pairs) {
+                              ch[env][p.key.trim()] = p.value;
+                            }
+                          }
+                        }
+
+                        // Merge with existing metadata
+                        const existingMeta = project.value
+                          ? parseMetadata(project.value)
+                          : {};
+                        const newMeta = {
+                          ...existingMeta,
+                          custom_headers:
+                            Object.keys(ch).length > 0 ? ch : undefined,
+                        };
+
+                        const updated = await put<Project>(
+                          `/projects/${projectId.value}`,
+                          { metadata: JSON.stringify(newMeta) },
+                        );
+                        project.value = updated;
+                        headersSuccess.value = true;
+                        setTimeout(() => (headersSuccess.value = false), 3000);
+                      } catch (e: any) {
+                        headersError.value = e.message;
+                      } finally {
+                        headersSaving.value = false;
+                      }
+                    }}
+                  >
+                    {headersSaving.value ? "Saving..." : "Save Headers"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </section>
 
         {/* CI Providers */}

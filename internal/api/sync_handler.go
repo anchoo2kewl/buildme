@@ -814,7 +814,7 @@ func (h *SyncHandler) DriftCheck(w http.ResponseWriter, r *http.Request) {
 			}
 
 			versionURL := c.baseURL + versionPath
-			versionData, sha := h.fetchVersionFull(r.Context(), versionURL, versionField, c.baseURL)
+			versionData, sha := h.fetchVersionFull(r.Context(), versionURL, versionField, c.project, c.baseURL)
 			es.VersionInfo = versionData
 			es.DeployedSHA = sha
 
@@ -823,7 +823,7 @@ func (h *SyncHandler) DriftCheck(w http.ResponseWriter, r *http.Request) {
 				healthPath = "/health"
 			}
 			healthURL := c.baseURL + healthPath
-			status, responseMS := h.checkHealthTimed(r.Context(), healthURL, c.baseURL)
+			status, responseMS := h.checkHealthTimed(r.Context(), healthURL, c.project, c.baseURL)
 			es.HealthStatus = status
 			es.ResponseTimeMS = responseMS
 
@@ -894,13 +894,14 @@ func (h *SyncHandler) DriftCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 // fetchVersionFull fetches the full version JSON and extracts the SHA field.
-func (h *SyncHandler) fetchVersionFull(ctx context.Context, url, field, baseURL string) (map[string]interface{}, string) {
+func (h *SyncHandler) fetchVersionFull(ctx context.Context, url, field string, project models.Project, baseURL string) (map[string]interface{}, string) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "BuildMe/1.0")
+	addProjectHeaders(req, project, baseURL)
 	h.addCfHeaders(req, baseURL)
 
 	resp, err := h.client.Do(req)
@@ -940,12 +941,13 @@ func extractField(data map[string]interface{}, path string) string {
 }
 
 // checkHealthTimed checks the health endpoint and returns status code + response time in ms.
-func (h *SyncHandler) checkHealthTimed(ctx context.Context, url, baseURL string) (int, int64) {
+func (h *SyncHandler) checkHealthTimed(ctx context.Context, url string, project models.Project, baseURL string) (int, int64) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
 	req.Header.Set("User-Agent", "BuildMe/1.0")
+	addProjectHeaders(req, project, baseURL)
 	h.addCfHeaders(req, baseURL)
 
 	start := time.Now()
@@ -956,6 +958,46 @@ func (h *SyncHandler) checkHealthTimed(ctx context.Context, url, baseURL string)
 	}
 	resp.Body.Close()
 	return resp.StatusCode, elapsed
+}
+
+// addProjectHeaders applies per-project custom headers from project metadata.
+// Metadata format: {"custom_headers":{"staging":{"Header-Name":"value",...},...}}
+func addProjectHeaders(req *http.Request, project models.Project, baseURL string) {
+	if project.Metadata == "" || project.Metadata == "{}" {
+		return
+	}
+
+	var meta struct {
+		CustomHeaders map[string]map[string]string `json:"custom_headers"`
+	}
+	if err := json.Unmarshal([]byte(project.Metadata), &meta); err != nil || meta.CustomHeaders == nil {
+		return
+	}
+
+	// Determine environment from URL
+	env := ""
+	envURLs := map[string]string{
+		"staging":    project.StagingURL,
+		"uat":        project.UATURL,
+		"production": project.ProductionURL,
+	}
+	for e, u := range envURLs {
+		if u != "" && strings.HasPrefix(baseURL, u) {
+			env = e
+			break
+		}
+	}
+	if env == "" {
+		return
+	}
+
+	headers, ok := meta.CustomHeaders[env]
+	if !ok {
+		return
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 }
 
 // addCfHeaders adds Cloudflare Access headers for staging/UAT URLs.

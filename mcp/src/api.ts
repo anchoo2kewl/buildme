@@ -95,6 +95,28 @@ export interface User {
   [key: string]: unknown;
 }
 
+export interface VersionOverviewEntry {
+  project_id: number;
+  project_name: string;
+  env: string;
+  version_info: Record<string, unknown> | null;
+  deployed_sha: string;
+  health_status: number;
+  response_time_ms: number;
+  checked_at: string;
+}
+
+export interface VersionSnapshot {
+  id: number;
+  project_id: number;
+  env: string;
+  version_info: string;
+  deployed_sha: string;
+  health_status: number;
+  response_time_ms: number;
+  created_at: string;
+}
+
 export class BuildMeClient {
   private baseURL: string;
   private apiKey: string;
@@ -216,5 +238,29 @@ export class BuildMeClient {
 
   async healthCheck(): Promise<{ status: string }> {
     return this.request("/health");
+  }
+
+  async getVersionOverview(): Promise<VersionOverviewEntry[]> {
+    return this.request<VersionOverviewEntry[]>("/api/version-overview");
+  }
+
+  async getVersionSnapshots(
+    projectId: string,
+    params?: { env?: string; limit?: number }
+  ): Promise<VersionSnapshot[]> {
+    const qs = new URLSearchParams();
+    if (params?.env) qs.set("env", params.env);
+    if (params?.limit) qs.set("limit", String(params.limit));
+    const suffix = qs.toString() ? `?${qs}` : "";
+    return this.request<VersionSnapshot[]>(
+      `/api/projects/${encodeURIComponent(projectId)}/version-snapshots${suffix}`
+    );
+  }
+
+  async updateProject(projectId: string, data: Record<string, unknown>): Promise<Project> {
+    return this.request<Project>(
+      `/api/projects/${encodeURIComponent(projectId)}`,
+      { method: "PUT", body: JSON.stringify(data) }
+    );
   }
 }

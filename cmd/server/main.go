@@ -55,6 +55,9 @@ func main() {
 	poll := poller.New(db, registry, hub, dispatcher, cfg)
 	go poll.Run()
 
+	versionPoll := poller.NewVersionPoller(db, cfg, hub)
+	go versionPoll.Run()
+
 	router := api.NewRouter(db, cfg, hub, registry, dispatcher)
 	addr := ":" + strconv.Itoa(cfg.Port)
 
@@ -82,6 +85,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	versionPoll.Stop()
 	poll.Stop()
 	dispatcher.Stop()
 	hub.Stop()
