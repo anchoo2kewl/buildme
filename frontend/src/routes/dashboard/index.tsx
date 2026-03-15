@@ -460,9 +460,14 @@ const ProjectCard = component$<ProjectCardProps>(
 
                 {/* DB + resources */}
                 <div class="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted">
+                  {typeof database?.["server_version"] === "string" ? (
+                    <span>{String(database["server_version"])}</span>
+                  ) : typeof database?.["type"] === "string" ? (
+                    <span>{String(database["type"])}</span>
+                  ) : null}
                   {typeof database?.["current_version"] === "number" && (
                     <span>
-                      db v{Number(database["current_version"])}
+                      migration v{Number(database["current_version"])}
                       {database["up_to_date"] === true ? "" : " (pending)"}
                     </span>
                   )}
