@@ -51,6 +51,7 @@ export interface ProjectMetadata {
   mcp_urls?: Record<string, string>;
   mcp_health_path?: string;
   custom_headers?: Record<string, Record<string, string>>;
+  version_poll_interval_m?: number;
 }
 
 export interface Project {

@@ -44,6 +44,7 @@ export default component$(() => {
   const mcpUrlUat = useSignal("");
   const mcpUrlProd = useSignal("");
   const mcpHealthPath = useSignal("/health");
+  const pollInterval = useSignal("60");
 
   // Custom headers
   const headersSaving = useSignal(false);
@@ -86,6 +87,7 @@ export default component$(() => {
       mcpUrlUat.value = meta.mcp_urls?.uat || "";
       mcpUrlProd.value = meta.mcp_urls?.production || meta.mcp_url || "";
       mcpHealthPath.value = meta.mcp_health_path || "/health";
+      pollInterval.value = String(meta.version_poll_interval_m || 60);
       // Load custom headers
       if (meta.custom_headers) {
         for (const env of ["staging", "uat", "production"] as const) {
@@ -285,6 +287,8 @@ export default component$(() => {
                 // Keep legacy mcp_url for backward compat (set to production)
                 if (mcpUrlProd.value) meta.mcp_url = mcpUrlProd.value;
                 if (mcpHealthPath.value && mcpHealthPath.value !== "/health") meta.mcp_health_path = mcpHealthPath.value;
+                const interval = parseInt(pollInterval.value, 10);
+                if (interval > 0 && interval !== 60) meta.version_poll_interval_m = interval;
 
                 const updated = await put<Project>(`/projects/${projectId.value}`, {
                   metadata: JSON.stringify(meta),
@@ -300,6 +304,20 @@ export default component$(() => {
             }}
             class="space-y-4 rounded-lg border border-border bg-elevated p-4"
           >
+            <div>
+              <label class="block text-xs font-medium text-muted">
+                Version Poll Interval (minutes)
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={1440}
+                bind:value={pollInterval}
+                class="mt-1 w-full max-w-xs rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted focus:border-accent focus:outline-none"
+              />
+              <span class="text-[11px] text-muted">How often to poll version endpoints. Default: 60 minutes.</span>
+            </div>
+
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div>
                 <label class="block text-xs font-medium text-muted">
