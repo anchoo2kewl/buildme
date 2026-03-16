@@ -648,7 +648,7 @@ export default component$(() => {
               {providers.value.map((p) => (
                 <div
                   key={p.id}
-                  class="flex items-center justify-between rounded-lg border border-border bg-elevated p-4"
+                  class={`flex items-center justify-between rounded-lg border border-border bg-elevated p-4${!p.enabled ? " opacity-50" : ""}`}
                 >
                   <div>
                     <span class="font-medium text-text">{p.display_name}</span>
@@ -659,9 +659,31 @@ export default component$(() => {
                       <CIProviderIcon provider={p.provider_type} size={14} />
                       {providerDisplayName(p.provider_type)}
                     </span>
+                    <span class={`ml-2 text-xs font-medium ${p.enabled ? "text-success" : "text-muted"}`}>
+                      {p.enabled ? "Enabled" : "Disabled"}
+                    </span>
                   </div>
                   <div class="flex items-center gap-2">
                     <button
+                      onClick$={async () => {
+                        try {
+                          const updated = await put<CIProvider>(
+                            `/projects/${projectId.value}/providers/${p.id}`,
+                            { enabled: !p.enabled },
+                          );
+                          providers.value = providers.value.map((pr) =>
+                            pr.id === p.id ? { ...pr, enabled: updated.enabled } : pr,
+                          );
+                        } catch {
+                          // ignore
+                        }
+                      }}
+                      class={`rounded px-2 py-1 text-xs ${p.enabled ? "text-warning hover:bg-warning/10" : "text-success hover:bg-success/10"}`}
+                    >
+                      {p.enabled ? "Disable" : "Enable"}
+                    </button>
+                    <button
+                      disabled={!p.enabled}
                       onClick$={async () => {
                         try {
                           await post(`/projects/${projectId.value}/providers/${p.id}/sync`, {});
@@ -669,7 +691,7 @@ export default component$(() => {
                           // ignore
                         }
                       }}
-                      class="rounded px-2 py-1 text-xs text-accent hover:bg-accent/10"
+                      class="rounded px-2 py-1 text-xs text-accent hover:bg-accent/10 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Sync
                     </button>

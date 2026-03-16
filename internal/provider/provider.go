@@ -27,6 +27,8 @@ func NewRegistry() *Registry {
 	r.Register(&GitHubProvider{})
 	r.Register(&TravisProvider{})
 	r.Register(&CircleCIProvider{})
+	// github_local reuses GitHubProvider (same API, visual distinction only)
+	r.providers[models.ProviderGitHubLocal] = &GitHubProvider{}
 	return r
 }
 
