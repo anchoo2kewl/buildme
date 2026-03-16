@@ -61,18 +61,25 @@ function barColor(value: number, threshold: number): string {
 
 function sparklinePoints(
   metrics: HostMetric[],
-  key: "cpu_percent" | "memory_percent" | "disk_percent",
+  key: keyof HostMetric,
   w: number,
   h: number,
 ): string {
   if (metrics.length < 2) return "";
-  const vals = metrics.map((m) => m[key]);
-  const max = Math.max(...vals, 1);
+  // API returns newest-first; reverse so chart reads left→right (oldest→newest)
+  const reversed = [...metrics].reverse();
+  const vals = reversed.map((m) => Number(m[key]));
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const pad = 2; // pixels of top/bottom padding
+  const range = max - min;
   const step = w / (vals.length - 1);
   return vals
     .map((v, i) => {
       const x = (i * step).toFixed(1);
-      const y = (h - (v / max) * (h - 4) - 2).toFixed(1);
+      // If all values are identical, draw at 50% height
+      const norm = range === 0 ? 0.5 : (v - min) / range;
+      const y = (h - norm * (h - 2 * pad) - pad).toFixed(1);
       return `${x},${y}`;
     })
     .join(" ");
@@ -285,6 +292,15 @@ export default component$(() => {
                         {host.disk_percent.toFixed(1)}%
                       </p>
                     </div>
+                    {/* NET I/O */}
+                    <div class="text-center">
+                      <p class="text-[10px] font-medium uppercase tracking-wider text-muted">
+                        Net I/O
+                      </p>
+                      <p class="text-sm font-bold tabular-nums text-success">
+                        {formatBytes(host.net_in_bytes)}/s
+                      </p>
+                    </div>
                   </div>
 
                   {/* Heartbeat */}
@@ -459,16 +475,14 @@ export default component$(() => {
 
                         {/* Sparklines */}
                         {hostMetrics.length >= 2 && (
-                          <div class="grid gap-3 sm:grid-cols-3">
+                          <div class="grid gap-3 sm:grid-cols-4">
                             {(
                               [
-                                { key: "cpu_percent", label: "CPU History" },
-                                {
-                                  key: "memory_percent",
-                                  label: "Memory History",
-                                },
-                                { key: "disk_percent", label: "Disk History" },
-                              ] as const
+                                { key: "cpu_percent" as keyof HostMetric, label: "CPU History", color: "text-accent" },
+                                { key: "memory_percent" as keyof HostMetric, label: "Memory History", color: "text-accent" },
+                                { key: "disk_percent" as keyof HostMetric, label: "Disk History", color: "text-accent" },
+                                { key: "net_in_bytes" as keyof HostMetric, label: "Network I/O", color: "text-success" },
+                              ]
                             ).map((chart) => (
                               <div
                                 key={chart.key}
@@ -486,7 +500,7 @@ export default component$(() => {
                                     fill="none"
                                     stroke="currentColor"
                                     stroke-width="1.5"
-                                    class="text-accent"
+                                    class={chart.color}
                                     points={sparklinePoints(
                                       hostMetrics,
                                       chart.key,

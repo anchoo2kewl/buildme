@@ -436,6 +436,43 @@ func (h *HostHandler) AgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	h.store.UpdateHostHeartbeat(r.Context(), host.ID, update)
 
+	// Check thresholds and create/resolve incidents for each linked project
+	if projectIDs, err := h.store.GetHostProjectIDs(r.Context(), host.ID); err == nil {
+		type metricCheck struct {
+			metric    string
+			value     float64
+			threshold float64
+		}
+		checks := []metricCheck{
+			{"host.cpu", req.CPUPercent, host.CPUThreshold},
+			{"host.memory", req.MemoryPercent, host.MemoryThreshold},
+			{"host.disk", req.DiskPercent, host.DiskThreshold},
+		}
+		for _, pid := range projectIDs {
+			for _, c := range checks {
+				existing, _ := h.store.GetOpenResourceIncident(r.Context(), pid, host.Name, c.metric)
+				if c.value >= c.threshold {
+					// Threshold exceeded — create incident if none open
+					if existing == nil {
+						_ = h.store.CreateResourceIncident(r.Context(), &models.ResourceIncident{
+							ProjectID: pid,
+							Env:       host.Name,
+							Metric:    c.metric,
+							Value:     c.value,
+							Threshold: c.threshold,
+							Message:   fmt.Sprintf("Host %s: %s at %.1f%% (threshold: %.1f%%)", host.Name, c.metric, c.value, c.threshold),
+						})
+					}
+				} else {
+					// Below threshold — auto-resolve if open
+					if existing != nil {
+						_ = h.store.ResolveResourceIncident(r.Context(), existing.ID)
+					}
+				}
+			}
+		}
+	}
+
 	jsonResp(w, http.StatusOK, map[string]any{
 		"status":           "ok",
 		"cpu_threshold":    host.CPUThreshold,
