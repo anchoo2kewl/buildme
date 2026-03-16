@@ -783,8 +783,12 @@ const IncidentsBanner = component$<IncidentsBannerProps>(({ incidents }) => {
 
   if (incidents.length === 0) return null;
 
+  const openIncidents = incidents.filter((i) => !i.resolved_at);
+  const resolvedIncidents = incidents.filter((i) => !!i.resolved_at);
+  const hasOpen = openIncidents.length > 0;
+
   return (
-    <div class="mb-4 rounded-xl border border-failure/25 bg-gradient-to-r from-failure/10 to-failure/[0.03]">
+    <div class={`mb-4 rounded-xl border ${hasOpen ? "border-failure/25 bg-gradient-to-r from-failure/10 to-failure/[0.03]" : "border-success/25 bg-gradient-to-r from-success/10 to-success/[0.03]"}`}>
       <button
         class="flex w-full items-center justify-between px-4 py-2 text-left"
         onClick$={() => {
@@ -792,10 +796,26 @@ const IncidentsBanner = component$<IncidentsBannerProps>(({ incidents }) => {
         }}
       >
         <div class="flex items-center gap-2">
-          <span class="inline-block h-2 w-2 animate-pulse rounded-full bg-failure bm-dot-failure" />
-          <span class="text-sm font-medium text-failure">
-            {incidents.length} Recent Incident{incidents.length > 1 ? "s" : ""}
-          </span>
+          {hasOpen ? (
+            <>
+              <span class="inline-block h-2 w-2 animate-pulse rounded-full bg-failure bm-dot-failure" />
+              <span class="text-sm font-medium text-failure">
+                {openIncidents.length} Open Incident{openIncidents.length > 1 ? "s" : ""}
+              </span>
+            </>
+          ) : (
+            <>
+              <span class="inline-block h-2 w-2 rounded-full bg-success bm-dot-success" />
+              <span class="text-sm font-medium text-success">
+                {resolvedIncidents.length} Resolved Incident{resolvedIncidents.length > 1 ? "s" : ""}
+              </span>
+            </>
+          )}
+          {hasOpen && resolvedIncidents.length > 0 && (
+            <span class="text-xs text-muted">
+              + {resolvedIncidents.length} resolved
+            </span>
+          )}
         </div>
         <svg
           class="h-4 w-4 text-muted transition-transform"
@@ -814,32 +834,42 @@ const IncidentsBanner = component$<IncidentsBannerProps>(({ incidents }) => {
       </button>
 
       {!collapsed.value && (
-        <div class="border-t border-failure/20 px-4 py-2">
+        <div class={`border-t ${hasOpen ? "border-failure/20" : "border-success/20"} px-4 py-2`}>
           <div class="space-y-1.5">
-            {incidents.map((inc) => (
-              <div
-                key={inc.id}
-                class="flex items-center gap-3 text-xs"
-              >
-                <span class="inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full bg-failure" />
-                <span class="font-medium text-text">
-                  {inc.project_name}
-                </span>
-                <span class="rounded bg-border/50 px-1.5 py-0.5 text-[10px] font-medium uppercase text-muted">
-                  {inc.env}
-                </span>
-                <span class="text-muted">{inc.metric}</span>
-                <span class="font-mono text-failure">
-                  {inc.value.toFixed(1)}
-                </span>
-                <span class="text-muted">
-                  / {inc.threshold.toFixed(0)}
-                </span>
-                <span class="ml-auto text-muted">
-                  {timeAgo(inc.created_at)}
-                </span>
-              </div>
-            ))}
+            {incidents.map((inc) => {
+              const isResolved = !!inc.resolved_at;
+              return (
+                <div
+                  key={inc.id}
+                  class={`flex items-center gap-3 text-xs ${isResolved ? "opacity-70" : ""}`}
+                >
+                  <span class={`inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full ${isResolved ? "bg-success" : "bg-failure animate-pulse"}`} />
+                  <span class="font-medium text-text">
+                    {inc.project_name}
+                  </span>
+                  <span class="rounded bg-border/50 px-1.5 py-0.5 text-[10px] font-medium uppercase text-muted">
+                    {inc.env}
+                  </span>
+                  <span class="text-muted">{inc.metric}</span>
+                  <span class={`font-mono ${isResolved ? "text-muted" : "text-failure"}`}>
+                    {inc.value.toFixed(1)}
+                  </span>
+                  <span class="text-muted">
+                    / {inc.threshold.toFixed(0)}
+                  </span>
+                  {isResolved ? (
+                    <span class="ml-auto flex items-center gap-1.5 text-success">
+                      <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                      Resolved {timeAgo(inc.resolved_at!)}
+                    </span>
+                  ) : (
+                    <span class="ml-auto text-muted">
+                      {timeAgo(inc.created_at)}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
