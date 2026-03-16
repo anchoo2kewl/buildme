@@ -73,3 +73,7 @@ export const fetchProjectIncidents = (projectId: number, limit = 20) =>
 
 export const syncProject = (projectId: number) =>
   api<unknown>(`/projects/${projectId}/sync`, { method: "POST" });
+
+export const fetchHosts = () => get<import("~/lib/types").Host[]>("/hosts");
+export const fetchHostMetrics = (hostId: number, limit = 60) =>
+  get<import("~/lib/types").HostMetric[]>(`/hosts/${hostId}/metrics?limit=${limit}`);

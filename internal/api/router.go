@@ -29,7 +29,7 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"*"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Host-Key"},
 		ExposedHeaders:   []string{"Link"},
 		AllowCredentials: true,
 		MaxAge:           300,
@@ -47,6 +47,7 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 	adminH := &AdminHandler{store: s}
 	vsnapH := &VersionSnapshotHandler{store: s}
 	metricH := &MetricHandler{store: s}
+	hostH := &HostHandler{store: s}
 
 	// Health + version
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -66,6 +67,9 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 		wh.Ingest(w, r)
 	})
 
+	// Host agent heartbeat (public, auth via X-Host-Key header)
+	r.Post("/api/host-agent/heartbeat", hostH.AgentHeartbeat)
+
 	// Authenticated routes
 	r.Group(func(r chi.Router) {
 		r.Use(JWTAuth(cfg.JWTSecret, s))
@@ -82,6 +86,16 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 		r.Get("/api/api-keys", apikeyH.List)
 		r.Post("/api/api-keys", apikeyH.Create)
 		r.Delete("/api/api-keys/{keyId}", apikeyH.Delete)
+
+		// Hosts
+		r.Get("/api/hosts", hostH.List)
+		r.Post("/api/hosts", hostH.Create)
+		r.Get("/api/hosts/{hostId}", hostH.Get)
+		r.Put("/api/hosts/{hostId}", hostH.Update)
+		r.Delete("/api/hosts/{hostId}", hostH.Delete)
+		r.Post("/api/hosts/{hostId}/link", hostH.LinkProject)
+		r.Delete("/api/hosts/{hostId}/projects/{projectId}", hostH.UnlinkProject)
+		r.Get("/api/hosts/{hostId}/metrics", hostH.ListMetrics)
 
 		// Dashboard + Sync + Drift
 		r.Get("/api/dashboard", syncH.Dashboard)

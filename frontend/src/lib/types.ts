@@ -234,3 +234,42 @@ export interface ResourceIncident {
   created_at: string;
   resolved_at?: string;
 }
+
+export interface Host {
+  id: number;
+  name: string;
+  hostname: string;
+  enabled: boolean;
+  cpu_threshold: number;
+  memory_threshold: number;
+  disk_threshold: number;
+  cpu_percent: number;
+  memory_percent: number;
+  disk_percent: number;
+  net_in_bytes: number;
+  net_out_bytes: number;
+  memory_total: number;
+  memory_used: number;
+  disk_total: number;
+  disk_used: number;
+  agent_version?: string;
+  ip_address?: string;
+  os_info?: string;
+  username?: string;
+  uptime_secs: number;
+  last_heartbeat_at?: string;
+  created_at: string;
+  updated_at: string;
+  project_ids?: number[];
+}
+
+export interface HostMetric {
+  id: number;
+  host_id: number;
+  cpu_percent: number;
+  memory_percent: number;
+  disk_percent: number;
+  net_in_bytes: number;
+  net_out_bytes: number;
+  created_at: string;
+}

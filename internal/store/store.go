@@ -116,4 +116,19 @@ type Store interface {
 	ListAllUsers(ctx context.Context) ([]models.User, error)
 	SetUserSuperAdmin(ctx context.Context, userID int64, isSuperAdmin bool) error
 	GetSystemCounts(ctx context.Context) (users int, projects int, builds int, err error)
+
+	// Hosts
+	CreateHost(ctx context.Context, h *models.Host) error
+	GetHostByID(ctx context.Context, id int64) (*models.Host, error)
+	GetHostByAPIKeyHash(ctx context.Context, hash string) (*models.Host, error)
+	ListAllHosts(ctx context.Context) ([]models.Host, error)
+	ListHostsByProject(ctx context.Context, projectID int64) ([]models.Host, error)
+	UpdateHost(ctx context.Context, h *models.Host) error
+	UpdateHostHeartbeat(ctx context.Context, id int64, h *models.Host) error
+	DeleteHost(ctx context.Context, id int64) error
+	LinkHostProject(ctx context.Context, hostID, projectID int64) error
+	UnlinkHostProject(ctx context.Context, hostID, projectID int64) error
+	GetHostProjectIDs(ctx context.Context, hostID int64) ([]int64, error)
+	CreateHostMetric(ctx context.Context, m *models.HostMetric) error
+	ListHostMetrics(ctx context.Context, hostID int64, limit int) ([]models.HostMetric, error)
 }

@@ -337,3 +337,52 @@ type VersionOverviewEntry struct {
 	MCPHealthStatus   int                    `json:"mcp_health_status,omitempty"`
 	MCPResponseTimeMS int64                  `json:"mcp_response_time_ms,omitempty"`
 }
+
+// Host represents a monitored server/VM linked to projects.
+type Host struct {
+	ID              int64      `json:"id"`
+	Name            string     `json:"name"`
+	Hostname        string     `json:"hostname"`
+	APIKeyHash      string     `json:"-"`
+	Enabled         bool       `json:"enabled"`
+	CPUThreshold    float64    `json:"cpu_threshold"`
+	MemoryThreshold float64    `json:"memory_threshold"`
+	DiskThreshold   float64    `json:"disk_threshold"`
+	CPUPercent      float64    `json:"cpu_percent"`
+	MemoryPercent   float64    `json:"memory_percent"`
+	DiskPercent     float64    `json:"disk_percent"`
+	NetInBytes      int64      `json:"net_in_bytes"`
+	NetOutBytes     int64      `json:"net_out_bytes"`
+	MemoryTotal     int64      `json:"memory_total"`
+	MemoryUsed      int64      `json:"memory_used"`
+	DiskTotal       int64      `json:"disk_total"`
+	DiskUsed        int64      `json:"disk_used"`
+	AgentVersion    string     `json:"agent_version,omitempty"`
+	IPAddress       string     `json:"ip_address,omitempty"`
+	OSInfo          string     `json:"os_info,omitempty"`
+	Username        string     `json:"username,omitempty"`
+	UptimeSecs      int64      `json:"uptime_secs"`
+	LastHeartbeatAt *time.Time `json:"last_heartbeat_at,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	ProjectIDs      []int64    `json:"project_ids,omitempty"`
+}
+
+// HostProject links a host to a project.
+type HostProject struct {
+	HostID    int64     `json:"host_id"`
+	ProjectID int64     `json:"project_id"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// HostMetric stores a time-series metric point for a host.
+type HostMetric struct {
+	ID            int64     `json:"id"`
+	HostID        int64     `json:"host_id"`
+	CPUPercent    float64   `json:"cpu_percent"`
+	MemoryPercent float64   `json:"memory_percent"`
+	DiskPercent   float64   `json:"disk_percent"`
+	NetInBytes    int64     `json:"net_in_bytes"`
+	NetOutBytes   int64     `json:"net_out_bytes"`
+	CreatedAt     time.Time `json:"created_at"`
+}

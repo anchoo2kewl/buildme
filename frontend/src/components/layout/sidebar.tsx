@@ -29,6 +29,19 @@ const navItems = [
     ),
   },
   {
+    href: "/dashboard/hosts",
+    label: "Hosts",
+    // Lucide: Server icon
+    icon: (
+      <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
+        <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
+        <line x1="6" y1="6" x2="6.01" y2="6" />
+        <line x1="6" y1="18" x2="6.01" y2="18" />
+      </svg>
+    ),
+  },
+  {
     href: "/dashboard/projects",
     label: "Projects",
     // Lucide: FolderKanban
