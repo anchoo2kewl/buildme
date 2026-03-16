@@ -14,6 +14,9 @@ import (
 	"github.com/anchoo2kewl/buildme/internal/ws"
 )
 
+// fastPollInterval is used when a provider has running builds.
+const fastPollInterval = 10 * time.Second
+
 type Poller struct {
 	store      store.Store
 	registry   *provider.Registry
@@ -87,7 +90,7 @@ func (p *Poller) pollProvider(ctx context.Context, cp *models.CIProvider) {
 		return
 	}
 
-	// Update next poll time immediately
+	// Set next poll to the normal interval; we may shorten it below.
 	next := time.Now().Add(time.Duration(cp.PollIntervalS) * time.Second)
 	if err := p.store.UpdateProviderNextPoll(ctx, cp.ID, next); err != nil {
 		slog.Error("poller: update next poll", "error", err)
@@ -104,13 +107,24 @@ func (p *Poller) pollProvider(ctx context.Context, cp *models.CIProvider) {
 		return
 	}
 
+	hasRunning := false
 	for i := range builds {
 		p.processBuild(ctx, &builds[i])
 
 		// For running builds, fetch and upsert jobs
 		if builds[i].Status == models.BuildStatusRunning {
+			hasRunning = true
 			p.fetchAndUpsertJobs(ctx, prov, cp, &builds[i])
 		}
+	}
+
+	// Adaptive polling: speed up this provider while it has running builds
+	if hasRunning {
+		fast := time.Now().Add(fastPollInterval)
+		if err := p.store.UpdateProviderNextPoll(ctx, cp.ID, fast); err != nil {
+			slog.Error("poller: update fast poll", "error", err)
+		}
+		slog.Debug("poller: fast poll for running build", "provider_id", cp.ID, "next_in", fastPollInterval)
 	}
 }
 

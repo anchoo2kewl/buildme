@@ -210,6 +210,15 @@ function timeAgo(dateStr: string): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
+function formatElapsed(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const s = Math.floor(diff / 1000);
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  if (m > 0) return `${m}m${sec > 0 ? `${sec}s` : ""}`;
+  return `${sec}s`;
+}
+
 function statusColor(status: number): string {
   if (status === 200) return "bg-success bm-dot-success";
   if (status > 0) return "bg-warning bm-dot-warning";
@@ -628,7 +637,10 @@ const ProjectCard = component$<ProjectCardProps>(
                           style={{ width: `${pct}%` }}
                         />
                       </div>
-                      <span class="text-[10px] text-muted">{done}/{total}</span>
+                      <span class="text-[10px] text-muted">
+                        {done}/{total}
+                        {runningBuild.started_at && ` \u00b7 ${formatElapsed(runningBuild.started_at)}`}
+                      </span>
                     </div>
                   );
                 })()}
@@ -657,11 +669,15 @@ const ProjectCard = component$<ProjectCardProps>(
               {mainBuild.created_at && (
                 <span class="text-muted">{timeAgo(mainBuild.created_at)}</span>
               )}
-              {mainBuild.duration_ms != null && (
+              {mainBuild.duration_ms != null ? (
                 <span class="text-muted">
                   {formatDuration(mainBuild.duration_ms)}
                 </span>
-              )}
+              ) : mainBuild.status === "running" && mainBuild.started_at ? (
+                <span class="text-running">
+                  {formatElapsed(mainBuild.started_at)} running
+                </span>
+              ) : null}
               {mainBuild.provider_url && (
                 <a
                   href={mainBuild.provider_url}
@@ -709,7 +725,10 @@ const ProjectCard = component$<ProjectCardProps>(
                       style={{ width: `${pct}%` }}
                     />
                   </div>
-                  <span class="text-[11px] text-muted">{done}/{total} jobs</span>
+                  <span class="text-[11px] text-muted">
+                    {done}/{total} jobs
+                    {mainBuild.started_at && ` \u00b7 ${formatElapsed(mainBuild.started_at)}`}
+                  </span>
                 </div>
               );
             })()}
