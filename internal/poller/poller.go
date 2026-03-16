@@ -106,6 +106,11 @@ func (p *Poller) pollProvider(ctx context.Context, cp *models.CIProvider) {
 
 	for i := range builds {
 		p.processBuild(ctx, &builds[i])
+
+		// For running builds, fetch and upsert jobs
+		if builds[i].Status == models.BuildStatusRunning {
+			p.fetchAndUpsertJobs(ctx, prov, cp, &builds[i])
+		}
 	}
 }
 
@@ -145,6 +150,43 @@ func (p *Poller) processBuild(ctx context.Context, build *models.Build) {
 	// Dispatch notifications for terminal builds
 	if build.Status.IsTerminal() {
 		p.dispatcher.Dispatch(ctx, build, oldStatus)
+	}
+}
+
+func (p *Poller) fetchAndUpsertJobs(ctx context.Context, prov provider.Provider, cp *models.CIProvider, build *models.Build) {
+	var jobs []models.BuildJob
+
+	// Travis already includes jobs in the build response
+	if len(build.Jobs) > 0 {
+		jobs = build.Jobs
+	} else if jf, ok := prov.(provider.JobFetcher); ok {
+		var err error
+		jobs, err = jf.FetchJobs(ctx, cp, build.ExternalID)
+		if err != nil {
+			slog.Error("poller: fetch jobs", "build_id", build.ID, "error", err)
+			return
+		}
+	} else {
+		return
+	}
+
+	changed := false
+	for i := range jobs {
+		jobs[i].BuildID = build.ID
+		if err := p.store.UpsertBuildJob(ctx, &jobs[i]); err != nil {
+			slog.Error("poller: upsert job", "error", err)
+			continue
+		}
+		changed = true
+	}
+
+	if changed {
+		build.Jobs = jobs
+		p.hub.BroadcastBuildEvent(models.BuildEvent{
+			Type:      "build.updated",
+			ProjectID: build.ProjectID,
+			Build:     build,
+		})
 	}
 }
 

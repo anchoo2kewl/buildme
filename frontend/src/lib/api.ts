@@ -70,3 +70,6 @@ export const fetchProjectIncidents = (projectId: number, limit = 20) =>
   get<import("~/lib/types").ResourceIncident[]>(
     `/projects/${projectId}/incidents?limit=${limit}`,
   );
+
+export const syncProject = (projectId: number) =>
+  api<unknown>(`/projects/${projectId}/sync`, { method: "POST" });

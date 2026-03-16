@@ -71,6 +71,27 @@ func (t *TravisProvider) FetchBuilds(ctx context.Context, cp *models.CIProvider)
 			d := int64(tb.Duration) * 1000
 			b.DurationMS = &d
 		}
+
+		// Attach jobs from the Travis builds API response
+		for _, tj := range tb.Jobs {
+			j := models.BuildJob{
+				ExternalID: strconv.Itoa(tj.ID),
+				Name:       tj.Number,
+				Status:     NormalizeTravisStatus(tj.State),
+			}
+			if tj.StartedAt != nil {
+				j.StartedAt = tj.StartedAt
+			}
+			if tj.FinishedAt != nil {
+				j.FinishedAt = tj.FinishedAt
+			}
+			if j.StartedAt != nil && j.FinishedAt != nil {
+				d := j.FinishedAt.Sub(*j.StartedAt).Milliseconds()
+				j.DurationMS = &d
+			}
+			b.Jobs = append(b.Jobs, j)
+		}
+
 		builds = append(builds, b)
 	}
 	return builds, nil

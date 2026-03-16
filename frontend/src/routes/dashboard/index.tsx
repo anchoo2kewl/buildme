@@ -1,5 +1,5 @@
 import { component$, useSignal, useVisibleTask$, useComputed$, $, type Signal } from "@builder.io/qwik";
-import { fetchDrift, fetchDashboard, fetchVersionOverview, fetchIncidents } from "~/lib/api";
+import { fetchDrift, fetchDashboard, fetchVersionOverview, fetchIncidents, syncProject } from "~/lib/api";
 import type {
   DriftDashboard,
   DashboardEntry,
@@ -63,7 +63,7 @@ export default component$(() => {
       }
 
       const unsub = ws.onEvent((event) => {
-        if (event.type === "version.updated" || event.type === "build.completed" || event.type === "build.created" || event.type === "incident.created") {
+        if (event.type === "version.updated" || event.type === "build.completed" || event.type === "build.created" || event.type === "build.updated" || event.type === "incident.created") {
           doRefresh();
         }
       });
@@ -170,6 +170,7 @@ export default component$(() => {
               builds={builds}
               envFilter={envFilter.value}
               selectedEnv={selectedEnv}
+              onRefresh$={doRefresh}
             />
           ))}
         </div>
@@ -294,10 +295,11 @@ interface ProjectCardProps {
   builds: Build[];
   envFilter: EnvFilter;
   selectedEnv: Signal<EnvironmentStatus | null>;
+  onRefresh$: () => Promise<void>;
 }
 
 const ProjectCard = component$<ProjectCardProps>(
-  ({ dp, builds, envFilter, selectedEnv }) => {
+  ({ dp, builds, envFilter, selectedEnv, onRefresh$ }) => {
     const meta = parseMetadata(dp.project);
     // Unique CI providers from builds
     const ciProviders = [
@@ -342,6 +344,20 @@ const ProjectCard = component$<ProjectCardProps>(
             )}
           </div>
           <div class="flex items-center gap-2">
+            <button
+              class="rounded p-1 text-muted transition-colors hover:text-accent"
+              title="Refresh this project"
+              onClick$={async (e: Event) => {
+                e.stopPropagation();
+                await syncProject(dp.project.id).catch(() => {});
+                await onRefresh$();
+              }}
+            >
+              <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                <path d="M21 3v5h-5" />
+              </svg>
+            </button>
             {ciProviders.map((pt) => (
               <span
                 key={pt}
@@ -514,6 +530,9 @@ const ProjectCard = component$<ProjectCardProps>(
                   {typeof frontend?.["nodeVersion"] === "string" && (
                     <span>{String(frontend["nodeVersion"])}</span>
                   )}
+                  {typeof backend?.["build_time"] === "string" && (
+                    <span>built {timeAgo(String(backend["build_time"]))}</span>
+                  )}
                 </div>
 
                 {/* DB + resources */}
@@ -584,6 +603,35 @@ const ProjectCard = component$<ProjectCardProps>(
                     </span>
                   )}
                 </div>
+
+                {/* Build progress bar for running builds targeting this env */}
+                {(() => {
+                  const runningBuild = builds.find(
+                    (b) => b.status === "running" && b.jobs && b.jobs.length > 0 && (b.branch === env || (env === "production" && b.branch === "main")),
+                  ) ?? builds.find(
+                    (b) => b.status === "running" && b.jobs && b.jobs.length > 0,
+                  );
+                  if (!runningBuild?.jobs) return null;
+                  const total = runningBuild.jobs.length;
+                  const done = runningBuild.jobs.filter((j) =>
+                    j.status === "success" || j.status === "failure" || j.status === "cancelled" || j.status === "error" || j.status === "skipped"
+                  ).length;
+                  const pct = total > 0 ? (done / total) * 100 : 0;
+                  return (
+                    <div class="mt-2 flex items-center gap-2">
+                      <svg class="h-3 w-3 flex-shrink-0 animate-spin text-running" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                        <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                      </svg>
+                      <div class="h-1 flex-1 rounded-full bg-running/20">
+                        <div
+                          class="h-1 rounded-full bg-running transition-all duration-500"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <span class="text-[10px] text-muted">{done}/{total}</span>
+                    </div>
+                  );
+                })()}
               </button>
             );
           })}
@@ -645,6 +693,26 @@ const ProjectCard = component$<ProjectCardProps>(
                 ))}
               </div>
             )}
+
+            {/* Build progress bar */}
+            {mainBuild.status === "running" && mainBuild.jobs && mainBuild.jobs.length > 0 && (() => {
+              const total = mainBuild.jobs.length;
+              const done = mainBuild.jobs.filter((j) =>
+                j.status === "success" || j.status === "failure" || j.status === "cancelled" || j.status === "error" || j.status === "skipped"
+              ).length;
+              const pct = total > 0 ? (done / total) * 100 : 0;
+              return (
+                <div class="mt-1.5 flex items-center gap-2">
+                  <div class="h-1.5 flex-1 rounded-full bg-running/20">
+                    <div
+                      class="h-1.5 rounded-full bg-running transition-all duration-500"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <span class="text-[11px] text-muted">{done}/{total} jobs</span>
+                </div>
+              );
+            })()}
           </div>
         )}
 

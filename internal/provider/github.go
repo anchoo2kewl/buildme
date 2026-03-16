@@ -83,6 +83,65 @@ func (g *GitHubProvider) FetchBuilds(ctx context.Context, cp *models.CIProvider)
 	return builds, nil
 }
 
+func (g *GitHubProvider) FetchJobs(ctx context.Context, cp *models.CIProvider, runID string) ([]models.BuildJob, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/actions/runs/%s/jobs", cp.RepoOwner, cp.RepoName, runID)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+cp.APIToken)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("github jobs API %d: %s", resp.StatusCode, body)
+	}
+
+	var result struct {
+		Jobs []struct {
+			ID          int64     `json:"id"`
+			Name        string    `json:"name"`
+			Status      string    `json:"status"`
+			Conclusion  string    `json:"conclusion"`
+			StartedAt   time.Time `json:"started_at"`
+			CompletedAt time.Time `json:"completed_at"`
+		} `json:"jobs"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	jobs := make([]models.BuildJob, 0, len(result.Jobs))
+	for _, j := range result.Jobs {
+		job := models.BuildJob{
+			ExternalID: strconv.FormatInt(j.ID, 10),
+			Name:       j.Name,
+			Status:     NormalizeGitHubStatus(j.Status, j.Conclusion),
+		}
+		if !j.StartedAt.IsZero() {
+			t := j.StartedAt
+			job.StartedAt = &t
+		}
+		if !j.CompletedAt.IsZero() {
+			t := j.CompletedAt
+			job.FinishedAt = &t
+		}
+		if job.StartedAt != nil && job.FinishedAt != nil {
+			d := job.FinishedAt.Sub(*job.StartedAt).Milliseconds()
+			job.DurationMS = &d
+		}
+		jobs = append(jobs, job)
+	}
+	return jobs, nil
+}
+
 func (g *GitHubProvider) ParseWebhook(r *http.Request, secret string) (*models.Build, []models.BuildJob, error) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {

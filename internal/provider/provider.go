@@ -15,6 +15,11 @@ type Provider interface {
 	VerifyWebhook(r *http.Request, secret string) bool
 }
 
+// JobFetcher is an optional interface for providers that can fetch jobs for a build.
+type JobFetcher interface {
+	FetchJobs(ctx context.Context, cp *models.CIProvider, externalID string) ([]models.BuildJob, error)
+}
+
 // Registry holds all registered providers.
 type Registry struct {
 	providers map[models.ProviderType]Provider

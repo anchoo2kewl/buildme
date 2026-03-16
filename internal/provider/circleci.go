@@ -265,8 +265,13 @@ type circleWorkflow struct {
 	StoppedAt time.Time `json:"stopped_at"`
 }
 
-// FetchJobs fetches jobs for a given workflow. Used for build detail view.
-func (c *CircleCIProvider) FetchJobs(ctx context.Context, token, workflowID string) ([]models.BuildJob, error) {
+// FetchJobs implements JobFetcher for CircleCI. externalID is the workflow ID.
+func (c *CircleCIProvider) FetchJobs(ctx context.Context, cp *models.CIProvider, externalID string) ([]models.BuildJob, error) {
+	return c.fetchJobsForWorkflow(ctx, cp.APIToken, externalID)
+}
+
+// fetchJobsForWorkflow fetches jobs for a given workflow.
+func (c *CircleCIProvider) fetchJobsForWorkflow(ctx context.Context, token, workflowID string) ([]models.BuildJob, error) {
 	url := fmt.Sprintf("https://circleci.com/api/v2/workflow/%s/job", workflowID)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
