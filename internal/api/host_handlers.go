@@ -252,7 +252,8 @@ func (h *HostHandler) LinkProject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		ProjectID int64 `json:"project_id"`
+		ProjectID int64  `json:"project_id"`
+		Env       string `json:"env"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "invalid request body", http.StatusBadRequest)
@@ -262,8 +263,11 @@ func (h *HostHandler) LinkProject(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "project_id is required", http.StatusBadRequest)
 		return
 	}
+	if req.Env == "" {
+		req.Env = "production"
+	}
 
-	if err := h.store.LinkHostProject(r.Context(), hostID, req.ProjectID); err != nil {
+	if err := h.store.LinkHostProject(r.Context(), hostID, req.ProjectID, req.Env); err != nil {
 		jsonError(w, "failed to link project", http.StatusInternalServerError)
 		return
 	}
@@ -321,6 +325,42 @@ func (h *HostHandler) ListMetrics(w http.ResponseWriter, r *http.Request) {
 		metrics = []models.HostMetric{}
 	}
 	jsonResp(w, http.StatusOK, metrics)
+}
+
+// ListProjectHosts returns hosts linked to a project with their env assignments.
+func (h *HostHandler) ListProjectHosts(w http.ResponseWriter, r *http.Request) {
+	projectID := ProjectIDFromCtx(r.Context())
+	if projectID == 0 {
+		jsonError(w, "missing project context", http.StatusBadRequest)
+		return
+	}
+
+	hosts, err := h.store.ListHostsByProject(r.Context(), projectID)
+	if err != nil {
+		jsonError(w, "failed to list hosts", http.StatusInternalServerError)
+		return
+	}
+
+	// Build a response that includes env info
+	type hostWithEnv struct {
+		models.Host
+		Env string `json:"env"`
+	}
+
+	var result []hostWithEnv
+	for _, host := range hosts {
+		links, _ := h.store.ListHostProjectLinks(r.Context(), host.ID)
+		for _, link := range links {
+			if link.ProjectID == projectID {
+				result = append(result, hostWithEnv{Host: host, Env: link.Env})
+			}
+		}
+	}
+
+	if result == nil {
+		result = []hostWithEnv{}
+	}
+	jsonResp(w, http.StatusOK, result)
 }
 
 func (h *HostHandler) AgentHeartbeat(w http.ResponseWriter, r *http.Request) {

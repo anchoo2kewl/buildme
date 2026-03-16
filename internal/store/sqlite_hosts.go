@@ -138,10 +138,10 @@ func (s *SQLiteStore) DeleteHost(ctx context.Context, id int64) error {
 
 // --- Host-Project Links ---
 
-func (s *SQLiteStore) LinkHostProject(ctx context.Context, hostID, projectID int64) error {
+func (s *SQLiteStore) LinkHostProject(ctx context.Context, hostID, projectID int64, env string) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT OR IGNORE INTO host_projects (host_id, project_id) VALUES (?, ?)`,
-		hostID, projectID)
+		`INSERT OR REPLACE INTO host_projects (host_id, project_id, env) VALUES (?, ?, ?)`,
+		hostID, projectID, env)
 	return err
 }
 
@@ -169,6 +169,36 @@ func (s *SQLiteStore) GetHostProjectIDs(ctx context.Context, hostID int64) ([]in
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
+}
+
+func (s *SQLiteStore) GetHostForProjectEnv(ctx context.Context, projectID int64, env string) (*models.Host, error) {
+	return s.scanHost(s.db.QueryRowContext(ctx,
+		`SELECT h.id, h.name, h.hostname, h.api_key_hash, h.enabled, h.cpu_threshold, h.memory_threshold, h.disk_threshold,
+		        h.cpu_percent, h.memory_percent, h.disk_percent, h.net_in_bytes, h.net_out_bytes,
+		        h.memory_total, h.memory_used, h.disk_total, h.disk_used,
+		        h.agent_version, h.ip_address, h.os_info, h.username, h.uptime_secs,
+		        h.last_heartbeat_at, h.created_at, h.updated_at
+		 FROM hosts h
+		 JOIN host_projects hp ON hp.host_id = h.id
+		 WHERE hp.project_id = ? AND hp.env = ?`, projectID, env))
+}
+
+func (s *SQLiteStore) ListHostProjectLinks(ctx context.Context, hostID int64) ([]models.HostProject, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT host_id, project_id, env, created_at FROM host_projects WHERE host_id = ? ORDER BY project_id`, hostID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var links []models.HostProject
+	for rows.Next() {
+		var l models.HostProject
+		if err := rows.Scan(&l.HostID, &l.ProjectID, &l.Env, &l.CreatedAt); err != nil {
+			return nil, err
+		}
+		links = append(links, l)
+	}
+	return links, rows.Err()
 }
 
 // --- Host Metrics ---

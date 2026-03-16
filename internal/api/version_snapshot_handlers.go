@@ -62,6 +62,13 @@ func (h *VersionSnapshotHandler) VersionOverview(w http.ResponseWriter, r *http.
 				entry.MCPResponseTimeMS = mcpSnap.ResponseTimeMS
 			}
 
+			// Include host info if a host is linked to this project+env
+			if host, _ := h.store.GetHostForProjectEnv(ctx, p.ID, env); host != nil {
+				entry.HostID = host.ID
+				entry.HostName = host.Name
+				entry.HostIP = host.IPAddress
+			}
+
 			entries = append(entries, entry)
 		}
 	}

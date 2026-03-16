@@ -268,6 +268,10 @@ type EnvironmentStatus struct {
 	Error             string                 `json:"error,omitempty"`
 	MCPHealthStatus   int                    `json:"mcp_health_status,omitempty"`
 	MCPResponseTimeMS int64                  `json:"mcp_response_time_ms,omitempty"`
+	// Host info (populated when a host is linked to this project+env)
+	HostID   int64  `json:"host_id,omitempty"`
+	HostName string `json:"host_name,omitempty"`
+	HostIP   string `json:"host_ip,omitempty"`
 }
 
 // DriftProject groups environment statuses for a single project.
@@ -336,6 +340,10 @@ type VersionOverviewEntry struct {
 	CheckedAt         string                 `json:"checked_at"`
 	MCPHealthStatus   int                    `json:"mcp_health_status,omitempty"`
 	MCPResponseTimeMS int64                  `json:"mcp_response_time_ms,omitempty"`
+	// Host info (populated when a host is linked to this project+env)
+	HostID   int64  `json:"host_id,omitempty"`
+	HostName string `json:"host_name,omitempty"`
+	HostIP   string `json:"host_ip,omitempty"`
 }
 
 // Host represents a monitored server/VM linked to projects.
@@ -368,10 +376,11 @@ type Host struct {
 	ProjectIDs      []int64    `json:"project_ids,omitempty"`
 }
 
-// HostProject links a host to a project.
+// HostProject links a host to a project for a specific environment.
 type HostProject struct {
 	HostID    int64     `json:"host_id"`
 	ProjectID int64     `json:"project_id"`
+	Env       string    `json:"env"` // staging, uat, production
 	CreatedAt time.Time `json:"created_at"`
 }
 

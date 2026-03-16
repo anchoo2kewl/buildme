@@ -126,9 +126,11 @@ type Store interface {
 	UpdateHost(ctx context.Context, h *models.Host) error
 	UpdateHostHeartbeat(ctx context.Context, id int64, h *models.Host) error
 	DeleteHost(ctx context.Context, id int64) error
-	LinkHostProject(ctx context.Context, hostID, projectID int64) error
+	LinkHostProject(ctx context.Context, hostID, projectID int64, env string) error
 	UnlinkHostProject(ctx context.Context, hostID, projectID int64) error
 	GetHostProjectIDs(ctx context.Context, hostID int64) ([]int64, error)
+	GetHostForProjectEnv(ctx context.Context, projectID int64, env string) (*models.Host, error)
+	ListHostProjectLinks(ctx context.Context, hostID int64) ([]models.HostProject, error)
 	CreateHostMetric(ctx context.Context, m *models.HostMetric) error
 	ListHostMetrics(ctx context.Context, hostID int64, limit int) ([]models.HostMetric, error)
 }

@@ -164,6 +164,9 @@ export interface EnvironmentStatus {
   error?: string;
   mcp_health_status?: number;
   mcp_response_time_ms?: number;
+  host_id?: number;
+  host_name?: string;
+  host_ip?: string;
 }
 
 export interface ProbeRegion {
@@ -200,6 +203,9 @@ export interface VersionOverviewEntry {
   checked_at: string;
   mcp_health_status?: number;
   mcp_response_time_ms?: number;
+  host_id?: number;
+  host_name?: string;
+  host_ip?: string;
 }
 
 export interface DashboardEntry {

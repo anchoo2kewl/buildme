@@ -141,6 +141,9 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 			r.Get("/metrics", metricH.ListMetrics)
 			r.Get("/incidents", metricH.ListProjectIncidents)
 
+			// Host for environment (viewer+)
+			r.Get("/hosts", hostH.ListProjectHosts)
+
 			// Builds (viewer+)
 			r.Get("/builds", buildH.List)
 			r.Get("/builds/{buildId}", buildH.Get)

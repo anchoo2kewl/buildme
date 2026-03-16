@@ -265,4 +265,5 @@ var migrations = []string{
 	)`,
 	"CREATE INDEX IF NOT EXISTS idx_host_metrics_host_time ON host_metrics(host_id, created_at DESC)",
 	"CREATE INDEX IF NOT EXISTS idx_hosts_api_key ON hosts(api_key_hash)",
+	"ALTER TABLE host_projects ADD COLUMN env TEXT NOT NULL DEFAULT 'production'",
 }

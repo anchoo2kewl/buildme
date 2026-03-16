@@ -611,6 +611,21 @@ const ProjectCard = component$<ProjectCardProps>(
                       {es.mcp_response_time_ms != null && <span>{es.mcp_response_time_ms}ms</span>}
                     </span>
                   )}
+                  {es.host_name && (
+                    <a
+                      href="/dashboard/hosts"
+                      class="inline-flex items-center gap-1 text-accent/80 hover:text-accent transition-colors"
+                    >
+                      <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="2" y="2" width="20" height="8" rx="2" />
+                        <rect x="2" y="14" width="20" height="8" rx="2" />
+                        <line x1="6" y1="6" x2="6.01" y2="6" />
+                        <line x1="6" y1="18" x2="6.01" y2="18" />
+                      </svg>
+                      {es.host_name}
+                      {es.host_ip && <span class="text-muted">({es.host_ip})</span>}
+                    </a>
+                  )}
                 </div>
 
                 {/* Build progress bar for running builds targeting this env */}

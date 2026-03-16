@@ -975,6 +975,13 @@ func (h *SyncHandler) DriftCheck(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
+			// Include host info if a host is linked to this project+env
+			if host, _ := h.store.GetHostForProjectEnv(r.Context(), c.project.ID, c.env); host != nil {
+				es.HostID = host.ID
+				es.HostName = host.Name
+				es.HostIP = host.IPAddress
+			}
+
 			results[idx] = es
 		}(i, chk)
 	}
