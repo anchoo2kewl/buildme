@@ -920,12 +920,12 @@ func (s *SQLiteStore) ListResourceIncidents(ctx context.Context, projectID int64
 	var query string
 	var args []any
 	if projectID > 0 {
-		query = `SELECT ri.id, ri.project_id, p.name, ri.env, ri.metric, ri.value, ri.threshold, ri.message, ri.created_at
+		query = `SELECT ri.id, ri.project_id, p.name, ri.env, ri.metric, ri.value, ri.threshold, ri.message, ri.created_at, ri.resolved_at
 			 FROM resource_incidents ri JOIN projects p ON p.id = ri.project_id
 			 WHERE ri.project_id = ? ORDER BY ri.created_at DESC LIMIT ?`
 		args = []any{projectID, limit}
 	} else {
-		query = `SELECT ri.id, ri.project_id, p.name, ri.env, ri.metric, ri.value, ri.threshold, ri.message, ri.created_at
+		query = `SELECT ri.id, ri.project_id, p.name, ri.env, ri.metric, ri.value, ri.threshold, ri.message, ri.created_at, ri.resolved_at
 			 FROM resource_incidents ri JOIN projects p ON p.id = ri.project_id
 			 ORDER BY ri.created_at DESC LIMIT ?`
 		args = []any{limit}
@@ -940,12 +940,34 @@ func (s *SQLiteStore) ListResourceIncidents(ctx context.Context, projectID int64
 	var incidents []models.ResourceIncident
 	for rows.Next() {
 		var inc models.ResourceIncident
-		if err := rows.Scan(&inc.ID, &inc.ProjectID, &inc.ProjectName, &inc.Env, &inc.Metric, &inc.Value, &inc.Threshold, &inc.Message, &inc.CreatedAt); err != nil {
+		if err := rows.Scan(&inc.ID, &inc.ProjectID, &inc.ProjectName, &inc.Env, &inc.Metric, &inc.Value, &inc.Threshold, &inc.Message, &inc.CreatedAt, &inc.ResolvedAt); err != nil {
 			return nil, err
 		}
 		incidents = append(incidents, inc)
 	}
 	return incidents, rows.Err()
+}
+
+func (s *SQLiteStore) GetOpenResourceIncident(ctx context.Context, projectID int64, env, metric string) (*models.ResourceIncident, error) {
+	var inc models.ResourceIncident
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, project_id, env, metric, value, threshold, message, created_at
+		 FROM resource_incidents WHERE project_id = ? AND env = ? AND metric = ? AND resolved_at IS NULL
+		 ORDER BY created_at DESC LIMIT 1`,
+		projectID, env, metric).Scan(&inc.ID, &inc.ProjectID, &inc.Env, &inc.Metric, &inc.Value, &inc.Threshold, &inc.Message, &inc.CreatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &inc, nil
+}
+
+func (s *SQLiteStore) ResolveResourceIncident(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE resource_incidents SET resolved_at = datetime('now') WHERE id = ? AND resolved_at IS NULL`, id)
+	return err
 }
 
 func (s *SQLiteStore) HasRecentIncident(ctx context.Context, projectID int64, env, metric string, since time.Time) (bool, error) {

@@ -63,7 +63,7 @@ export default component$(() => {
       }
 
       const unsub = ws.onEvent((event) => {
-        if (event.type === "version.updated" || event.type === "build.completed" || event.type === "build.created" || event.type === "build.updated" || event.type === "incident.created") {
+        if (event.type === "version.updated" || event.type === "build.completed" || event.type === "build.created" || event.type === "build.updated" || event.type === "incident.created" || event.type === "incident.resolved") {
           doRefresh();
         }
       });

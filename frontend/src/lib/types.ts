@@ -232,4 +232,5 @@ export interface ResourceIncident {
   threshold: number;
   message: string;
   created_at: string;
+  resolved_at?: string;
 }

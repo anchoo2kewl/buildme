@@ -103,6 +103,8 @@ type Store interface {
 	// Resource Incidents
 	CreateResourceIncident(ctx context.Context, incident *models.ResourceIncident) error
 	ListResourceIncidents(ctx context.Context, projectID int64, limit int) ([]models.ResourceIncident, error)
+	GetOpenResourceIncident(ctx context.Context, projectID int64, env, metric string) (*models.ResourceIncident, error)
+	ResolveResourceIncident(ctx context.Context, id int64) error
 	HasRecentIncident(ctx context.Context, projectID int64, env, metric string, since time.Time) (bool, error)
 	PruneResourceIncidents(ctx context.Context, olderThan time.Time) error
 

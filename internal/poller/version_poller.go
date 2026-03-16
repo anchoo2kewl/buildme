@@ -262,6 +262,9 @@ func (vp *VersionPoller) checkEnv(ctx context.Context, project models.Project, e
 		return
 	}
 
+	// Track health check incidents (non-200 creates incident, 200 auto-resolves)
+	vp.trackHealthIncident(ctx, project, env, healthStatus)
+
 	// Extract and store structured metrics
 	if versionData != nil {
 		point := extractMetrics(versionData, project.ID, env, responseMS)
@@ -536,6 +539,15 @@ func (vp *VersionPoller) checkIncidents(ctx context.Context, project models.Proj
 	for _, t := range incidentThresholds {
 		val := t.value(point)
 		if val <= t.threshold {
+			// Auto-resolve if metric dropped below threshold
+			open, _ := vp.store.GetOpenResourceIncident(ctx, project.ID, env, t.metric)
+			if open != nil {
+				_ = vp.store.ResolveResourceIncident(ctx, open.ID)
+				vp.hub.BroadcastVersionEvent(models.BuildEvent{
+					Type:      "incident.resolved",
+					ProjectID: project.ID,
+				})
+			}
 			continue
 		}
 
@@ -566,6 +578,47 @@ func (vp *VersionPoller) checkIncidents(ctx context.Context, project models.Proj
 			Type:      "incident.created",
 			ProjectID: project.ID,
 		})
+	}
+}
+
+// trackHealthIncident creates an incident on non-200 health status and auto-resolves when health recovers.
+func (vp *VersionPoller) trackHealthIncident(ctx context.Context, project models.Project, env string, healthStatus int) {
+	if healthStatus != 200 && healthStatus > 0 {
+		open, _ := vp.store.GetOpenResourceIncident(ctx, project.ID, env, "health_status")
+		if open == nil {
+			inc := &models.ResourceIncident{
+				ProjectID: project.ID,
+				Env:       env,
+				Metric:    "health_status",
+				Value:     float64(healthStatus),
+				Threshold: 200,
+				Message:   fmt.Sprintf("Health check returned %d", healthStatus),
+			}
+			if err := vp.store.CreateResourceIncident(ctx, inc); err != nil {
+				slog.Error("version-poller: create health incident", "error", err)
+			} else {
+				slog.Warn("version-poller: health incident",
+					"project", project.Name, "env", env, "status", healthStatus)
+				vp.hub.BroadcastVersionEvent(models.BuildEvent{
+					Type:      "incident.created",
+					ProjectID: project.ID,
+				})
+			}
+		}
+	} else if healthStatus == 200 {
+		open, _ := vp.store.GetOpenResourceIncident(ctx, project.ID, env, "health_status")
+		if open != nil {
+			if err := vp.store.ResolveResourceIncident(ctx, open.ID); err != nil {
+				slog.Error("version-poller: resolve health incident", "error", err)
+			} else {
+				slog.Info("version-poller: health incident resolved",
+					"project", project.Name, "env", env)
+				vp.hub.BroadcastVersionEvent(models.BuildEvent{
+					Type:      "incident.resolved",
+					ProjectID: project.ID,
+				})
+			}
+		}
 	}
 }
 

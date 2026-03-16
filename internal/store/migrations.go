@@ -217,4 +217,6 @@ var migrations = []string{
 	"CREATE INDEX IF NOT EXISTS idx_ri_proj_env_time ON resource_incidents(project_id, env, created_at DESC)",
 	"ALTER TABLE version_snapshots ADD COLUMN service TEXT NOT NULL DEFAULT 'main'",
 	"CREATE INDEX IF NOT EXISTS idx_vs_proj_env_svc ON version_snapshots(project_id, env, service, created_at DESC)",
+	"ALTER TABLE resource_incidents ADD COLUMN resolved_at DATETIME",
+	"CREATE INDEX IF NOT EXISTS idx_ri_open ON resource_incidents(project_id, env, metric, resolved_at)",
 }

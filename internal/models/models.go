@@ -312,15 +312,16 @@ type MetricPoint struct {
 
 // ResourceIncident records a threshold breach for a resource metric.
 type ResourceIncident struct {
-	ID          int64     `json:"id"`
-	ProjectID   int64     `json:"project_id"`
-	ProjectName string    `json:"project_name,omitempty"`
-	Env         string    `json:"env"`
-	Metric      string    `json:"metric"`
-	Value       float64   `json:"value"`
-	Threshold   float64   `json:"threshold"`
-	Message     string    `json:"message"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID          int64      `json:"id"`
+	ProjectID   int64      `json:"project_id"`
+	ProjectName string     `json:"project_name,omitempty"`
+	Env         string     `json:"env"`
+	Metric      string     `json:"metric"`
+	Value       float64    `json:"value"`
+	Threshold   float64    `json:"threshold"`
+	Message     string     `json:"message"`
+	CreatedAt   time.Time  `json:"created_at"`
+	ResolvedAt  *time.Time `json:"resolved_at,omitempty"`
 }
 
 // VersionOverviewEntry is the latest snapshot for a project+env, enriched with project name.
