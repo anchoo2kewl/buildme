@@ -66,6 +66,12 @@ export const fetchMetrics = (projectId: number, env: string, hours = 24) =>
 export const fetchIncidents = (limit = 50) =>
   get<import("~/lib/types").ResourceIncident[]>(`/incidents?limit=${limit}`);
 
+export const fetchAllIncidents = (limit = 200) =>
+  get<import("~/lib/types").ResourceIncident[]>(`/incidents?limit=${limit}&all=true`);
+
+export const ignoreIncident = (id: number, ignored: boolean) =>
+  patch<{ message: string }>(`/incidents/${id}/ignore`, { ignored });
+
 export const fetchProjectIncidents = (projectId: number, limit = 20) =>
   get<import("~/lib/types").ResourceIncident[]>(
     `/projects/${projectId}/incidents?limit=${limit}`,

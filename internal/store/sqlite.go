@@ -912,7 +912,7 @@ func (s *SQLiteStore) CreateResourceIncident(ctx context.Context, inc *models.Re
 	return nil
 }
 
-func (s *SQLiteStore) ListResourceIncidents(ctx context.Context, projectID int64, limit int) ([]models.ResourceIncident, error) {
+func (s *SQLiteStore) ListResourceIncidents(ctx context.Context, projectID int64, limit int, showAll bool) ([]models.ResourceIncident, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
@@ -920,13 +920,22 @@ func (s *SQLiteStore) ListResourceIncidents(ctx context.Context, projectID int64
 	var query string
 	var args []any
 	if projectID > 0 {
-		query = `SELECT ri.id, ri.project_id, p.name, ri.env, ri.metric, ri.value, ri.threshold, ri.message, ri.created_at, ri.resolved_at
+		// Project-specific: show everything (including ignored and old resolved)
+		query = `SELECT ri.id, ri.project_id, p.name, ri.env, ri.metric, ri.value, ri.threshold, ri.message, ri.created_at, ri.resolved_at, ri.ignored, ri.ignored_at
 			 FROM resource_incidents ri JOIN projects p ON p.id = ri.project_id
 			 WHERE ri.project_id = ? ORDER BY ri.created_at DESC LIMIT ?`
 		args = []any{projectID, limit}
-	} else {
-		query = `SELECT ri.id, ri.project_id, p.name, ri.env, ri.metric, ri.value, ri.threshold, ri.message, ri.created_at, ri.resolved_at
+	} else if showAll {
+		// Global listing, show all (for incidents page)
+		query = `SELECT ri.id, ri.project_id, p.name, ri.env, ri.metric, ri.value, ri.threshold, ri.message, ri.created_at, ri.resolved_at, ri.ignored, ri.ignored_at
 			 FROM resource_incidents ri JOIN projects p ON p.id = ri.project_id
+			 ORDER BY ri.created_at DESC LIMIT ?`
+		args = []any{limit}
+	} else {
+		// Global listing, filtered (for dashboard): hide ignored and resolved > 24h
+		query = `SELECT ri.id, ri.project_id, p.name, ri.env, ri.metric, ri.value, ri.threshold, ri.message, ri.created_at, ri.resolved_at, ri.ignored, ri.ignored_at
+			 FROM resource_incidents ri JOIN projects p ON p.id = ri.project_id
+			 WHERE ri.ignored = 0 AND (ri.resolved_at IS NULL OR ri.resolved_at > datetime('now', '-24 hours'))
 			 ORDER BY ri.created_at DESC LIMIT ?`
 		args = []any{limit}
 	}
@@ -940,7 +949,7 @@ func (s *SQLiteStore) ListResourceIncidents(ctx context.Context, projectID int64
 	var incidents []models.ResourceIncident
 	for rows.Next() {
 		var inc models.ResourceIncident
-		if err := rows.Scan(&inc.ID, &inc.ProjectID, &inc.ProjectName, &inc.Env, &inc.Metric, &inc.Value, &inc.Threshold, &inc.Message, &inc.CreatedAt, &inc.ResolvedAt); err != nil {
+		if err := rows.Scan(&inc.ID, &inc.ProjectID, &inc.ProjectName, &inc.Env, &inc.Metric, &inc.Value, &inc.Threshold, &inc.Message, &inc.CreatedAt, &inc.ResolvedAt, &inc.Ignored, &inc.IgnoredAt); err != nil {
 			return nil, err
 		}
 		incidents = append(incidents, inc)
@@ -952,7 +961,7 @@ func (s *SQLiteStore) GetOpenResourceIncident(ctx context.Context, projectID int
 	var inc models.ResourceIncident
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, env, metric, value, threshold, message, created_at
-		 FROM resource_incidents WHERE project_id = ? AND env = ? AND metric = ? AND resolved_at IS NULL
+		 FROM resource_incidents WHERE project_id = ? AND env = ? AND metric = ? AND resolved_at IS NULL AND ignored = 0
 		 ORDER BY created_at DESC LIMIT 1`,
 		projectID, env, metric).Scan(&inc.ID, &inc.ProjectID, &inc.Env, &inc.Metric, &inc.Value, &inc.Threshold, &inc.Message, &inc.CreatedAt)
 	if err != nil {
@@ -967,6 +976,17 @@ func (s *SQLiteStore) GetOpenResourceIncident(ctx context.Context, projectID int
 func (s *SQLiteStore) ResolveResourceIncident(ctx context.Context, id int64) error {
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE resource_incidents SET resolved_at = datetime('now') WHERE id = ? AND resolved_at IS NULL`, id)
+	return err
+}
+
+func (s *SQLiteStore) IgnoreResourceIncident(ctx context.Context, id int64, ignored bool) error {
+	if ignored {
+		_, err := s.db.ExecContext(ctx,
+			`UPDATE resource_incidents SET ignored = 1, ignored_at = datetime('now') WHERE id = ?`, id)
+		return err
+	}
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE resource_incidents SET ignored = 0, ignored_at = NULL WHERE id = ?`, id)
 	return err
 }
 

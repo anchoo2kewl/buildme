@@ -239,6 +239,8 @@ export interface ResourceIncident {
   message: string;
   created_at: string;
   resolved_at?: string;
+  ignored: boolean;
+  ignored_at?: string;
 }
 
 export interface Host {

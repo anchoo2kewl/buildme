@@ -326,6 +326,8 @@ type ResourceIncident struct {
 	Message     string     `json:"message"`
 	CreatedAt   time.Time  `json:"created_at"`
 	ResolvedAt  *time.Time `json:"resolved_at,omitempty"`
+	Ignored     bool       `json:"ignored"`
+	IgnoredAt   *time.Time `json:"ignored_at,omitempty"`
 }
 
 // VersionOverviewEntry is the latest snapshot for a project+env, enriched with project name.

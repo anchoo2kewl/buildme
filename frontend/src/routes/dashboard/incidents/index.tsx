@@ -1,8 +1,8 @@
-import { component$, useSignal, useVisibleTask$, useComputed$ } from "@builder.io/qwik";
-import { fetchIncidents } from "~/lib/api";
+import { component$, useSignal, useVisibleTask$, useComputed$, $ } from "@builder.io/qwik";
+import { fetchAllIncidents, ignoreIncident } from "~/lib/api";
 import type { ResourceIncident } from "~/lib/types";
 
-type StatusFilter = "all" | "open" | "resolved";
+type StatusFilter = "all" | "open" | "resolved" | "ignored";
 type EnvFilter = "all" | "production" | "staging" | "uat";
 
 function timeAgo(dateStr: string): string {
@@ -45,9 +45,13 @@ export default component$(() => {
   const statusFilter = useSignal<StatusFilter>("all");
   const envFilter = useSignal<EnvFilter>("all");
 
-  useVisibleTask$(async ({ cleanup }) => {
-    const data = await fetchIncidents(200).catch(() => []);
+  const doRefresh = $(async () => {
+    const data = await fetchAllIncidents(200).catch(() => []);
     incidents.value = data ?? [];
+  });
+
+  useVisibleTask$(async ({ cleanup }) => {
+    await doRefresh();
     loading.value = false;
 
     // Auto-refresh on WS events
@@ -59,8 +63,7 @@ export default component$(() => {
 
       const unsub = ws.onEvent(async (event) => {
         if (event.type === "incident.created" || event.type === "incident.resolved") {
-          const fresh = await fetchIncidents(200).catch(() => []);
-          incidents.value = fresh ?? [];
+          await doRefresh();
         }
       });
 
@@ -73,8 +76,9 @@ export default component$(() => {
 
   const filtered = useComputed$(() => {
     return incidents.value.filter((inc) => {
-      if (statusFilter.value === "open" && inc.resolved_at) return false;
+      if (statusFilter.value === "open" && (inc.resolved_at || inc.ignored)) return false;
       if (statusFilter.value === "resolved" && !inc.resolved_at) return false;
+      if (statusFilter.value === "ignored" && !inc.ignored) return false;
       if (envFilter.value !== "all" && inc.env !== envFilter.value) return false;
       return true;
     });
@@ -102,7 +106,7 @@ export default component$(() => {
       {/* Filters */}
       <div class="mb-4 flex flex-wrap items-center gap-2">
         {/* Status filter */}
-        {(["all", "open", "resolved"] as StatusFilter[]).map((s) => (
+        {(["all", "open", "resolved", "ignored"] as StatusFilter[]).map((s) => (
           <button
             key={s}
             class={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
@@ -111,12 +115,14 @@ export default component$(() => {
                   ? "bg-failure/15 text-failure"
                   : s === "resolved"
                     ? "bg-success/15 text-success"
-                    : "bg-accent/15 text-accent"
+                    : s === "ignored"
+                      ? "bg-warning/15 text-warning"
+                      : "bg-accent/15 text-accent"
                 : "bg-elevated text-muted hover:bg-white/[0.04] hover:text-text"
             }`}
             onClick$={() => { statusFilter.value = s; }}
           >
-            {s === "all" ? "All" : s === "open" ? "Open" : "Resolved"}
+            {s === "all" ? "All" : s === "open" ? "Open" : s === "resolved" ? "Resolved" : "Ignored"}
           </button>
         ))}
 
@@ -158,7 +164,7 @@ export default component$(() => {
         /* Incidents table */
         <div class="overflow-hidden rounded-xl border border-border">
           {/* Table header */}
-          <div class="grid grid-cols-[auto_1fr_80px_100px_1fr_100px_100px_100px] items-center gap-3 border-b border-border bg-elevated/80 px-4 py-2.5 text-xs font-medium uppercase tracking-wider text-muted">
+          <div class="grid grid-cols-[auto_1fr_80px_100px_1fr_100px_100px_100px_60px] items-center gap-3 border-b border-border bg-elevated/80 px-4 py-2.5 text-xs font-medium uppercase tracking-wider text-muted">
             <span class="w-2" />
             <span>Project</span>
             <span>Env</span>
@@ -167,6 +173,7 @@ export default component$(() => {
             <span>Created</span>
             <span>Resolved</span>
             <span>Duration</span>
+            <span />
           </div>
 
           {/* Rows */}
@@ -175,18 +182,18 @@ export default component$(() => {
             return (
               <div
                 key={inc.id}
-                class="grid grid-cols-[auto_1fr_80px_100px_1fr_100px_100px_100px] items-center gap-3 border-b border-border/50 px-4 py-3 text-sm transition-colors hover:bg-white/[0.02]"
+                class={`grid grid-cols-[auto_1fr_80px_100px_1fr_100px_100px_100px_60px] items-center gap-3 border-b border-border/50 px-4 py-3 text-sm transition-colors hover:bg-white/[0.02] ${inc.ignored ? "opacity-40" : ""}`}
                 style={{ animation: "bm-fade-in 0.3s ease" }}
               >
                 {/* Status dot */}
                 <span
                   class={`inline-block h-2 w-2 rounded-full ${
-                    isOpen ? "bg-failure bm-dot-failure animate-pulse" : "bg-success bm-dot-success"
+                    inc.ignored ? "bg-warning bm-dot-warning" : isOpen ? "bg-failure bm-dot-failure animate-pulse" : "bg-success bm-dot-success"
                   }`}
                 />
 
                 {/* Project */}
-                <span class="truncate font-medium text-text">
+                <span class={`truncate font-medium text-text ${inc.ignored ? "line-through" : ""}`}>
                   {inc.project_name || `Project ${inc.project_id}`}
                 </span>
 
@@ -225,6 +232,29 @@ export default component$(() => {
                     ? formatDuration(inc.created_at, inc.resolved_at)
                     : formatDuration(inc.created_at, new Date().toISOString())}
                 </span>
+
+                {/* Ignore/Unignore */}
+                <button
+                  class={`rounded p-1 transition-colors ${inc.ignored ? "text-warning hover:text-text" : "text-muted hover:text-warning"}`}
+                  title={inc.ignored ? "Unignore incident" : "Ignore incident"}
+                  onClick$={async () => {
+                    await ignoreIncident(inc.id, !inc.ignored).catch(() => {});
+                    await doRefresh();
+                  }}
+                >
+                  {inc.ignored ? (
+                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+                      <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+                      <line x1="1" y1="1" x2="23" y2="23" />
+                    </svg>
+                  ) : (
+                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  )}
+                </button>
               </div>
             );
           })}

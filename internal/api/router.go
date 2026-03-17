@@ -107,6 +107,7 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 
 		// Incidents (all projects)
 		r.Get("/api/incidents", metricH.ListIncidents)
+		r.Patch("/api/incidents/{incidentId}/ignore", metricH.IgnoreIncident)
 
 		// Admin settings (super admin only)
 		r.Get("/api/admin/email-settings", adminH.GetEmailSettings)

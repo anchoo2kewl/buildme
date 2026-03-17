@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
@@ -44,7 +45,7 @@ func (h *MetricHandler) ListMetrics(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListIncidents returns recent incidents across all projects.
-// GET /api/incidents?limit=50
+// GET /api/incidents?limit=50&all=true
 func (h *MetricHandler) ListIncidents(w http.ResponseWriter, r *http.Request) {
 	limit := 50
 	if l := r.URL.Query().Get("limit"); l != "" {
@@ -53,7 +54,9 @@ func (h *MetricHandler) ListIncidents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	incidents, err := h.store.ListResourceIncidents(r.Context(), 0, limit)
+	showAll := r.URL.Query().Get("all") == "true"
+
+	incidents, err := h.store.ListResourceIncidents(r.Context(), 0, limit, showAll)
 	if err != nil {
 		jsonError(w, "failed to list incidents", http.StatusInternalServerError)
 		return
@@ -77,7 +80,7 @@ func (h *MetricHandler) ListProjectIncidents(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	incidents, err := h.store.ListResourceIncidents(r.Context(), projectID, limit)
+	incidents, err := h.store.ListResourceIncidents(r.Context(), projectID, limit, true)
 	if err != nil {
 		jsonError(w, "failed to list incidents", http.StatusInternalServerError)
 		return
@@ -87,4 +90,26 @@ func (h *MetricHandler) ListProjectIncidents(w http.ResponseWriter, r *http.Requ
 		incidents = []models.ResourceIncident{}
 	}
 	jsonResp(w, http.StatusOK, incidents)
+}
+
+// IgnoreIncident marks an incident as ignored or unignored.
+// PATCH /api/incidents/{incidentId}/ignore
+func (h *MetricHandler) IgnoreIncident(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "incidentId"), 10, 64)
+	if err != nil {
+		jsonError(w, "invalid incident id", http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		Ignored bool `json:"ignored"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if err := h.store.IgnoreResourceIncident(r.Context(), id, req.Ignored); err != nil {
+		jsonError(w, "failed to update incident", http.StatusInternalServerError)
+		return
+	}
+	jsonResp(w, http.StatusOK, map[string]string{"message": "incident updated"})
 }
