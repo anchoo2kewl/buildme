@@ -1,5 +1,5 @@
 import { component$, useSignal, useVisibleTask$, useComputed$, $, type Signal } from "@builder.io/qwik";
-import { fetchDrift, fetchDashboard, fetchVersionOverview, fetchIncidents, syncProject } from "~/lib/api";
+import { fetchDrift, fetchDashboard, fetchVersionOverview, fetchIncidents, fetchGroups, syncProject } from "~/lib/api";
 import type {
   DriftDashboard,
   DashboardEntry,
@@ -10,6 +10,7 @@ import type {
   ProviderType,
   VersionOverviewEntry,
   ResourceIncident,
+  ProjectGroup,
 } from "~/lib/types";
 import { parseMetadata } from "~/lib/types";
 import { EnvironmentDetail } from "~/components/environments/environment-detail";
@@ -25,26 +26,43 @@ export default component$(() => {
   const versionOverview = useSignal<VersionOverviewEntry[] | null>(null);
   const incidents = useSignal<ResourceIncident[]>([]);
   const selectedEnv = useSignal<EnvironmentStatus | null>(null);
+  const groups = useSignal<ProjectGroup[]>([]);
+  const collapsedGroups = useSignal<Set<number>>(new Set());
   const loading = useSignal(true);
   const refreshing = useSignal(false);
   const lastChecked = useSignal<string | null>(null);
   const envFilter = useSignal<EnvFilter>("all");
 
   const doRefresh = $(async () => {
-    const [driftData, dashData, versionData, incidentsData] = await Promise.all([
+    const [driftData, dashData, versionData, incidentsData, groupsData] = await Promise.all([
       fetchDrift().catch(() => null),
       fetchDashboard().catch(() => null),
       fetchVersionOverview().catch(() => null),
       fetchIncidents(20).catch(() => []),
+      fetchGroups().catch(() => []),
     ]);
     drift.value = driftData;
     dashboard.value = dashData;
     versionOverview.value = versionData;
     incidents.value = incidentsData ?? [];
+    groups.value = groupsData ?? [];
     lastChecked.value = new Date().toLocaleTimeString();
   });
 
+  const toggleGroup = $((groupId: number) => {
+    const next = new Set(collapsedGroups.value);
+    if (next.has(groupId)) next.delete(groupId);
+    else next.add(groupId);
+    collapsedGroups.value = next;
+    localStorage.setItem("buildme_collapsed_groups", JSON.stringify([...next]));
+  });
+
   useVisibleTask$(async ({ cleanup }) => {
+    try {
+      const saved = localStorage.getItem("buildme_collapsed_groups");
+      if (saved) collapsedGroups.value = new Set(JSON.parse(saved));
+    } catch { /* ignore */ }
+
     await doRefresh();
     loading.value = false;
 
@@ -89,6 +107,16 @@ export default component$(() => {
             ?.builds ?? [];
         return { dp, builds };
       });
+  });
+
+  const visibleGroups = useComputed$(() => {
+    return groups.value
+      .filter((g) => g.visible)
+      .sort((a, b) => a.sort_order - b.sort_order);
+  });
+
+  const ungroupedCards = useComputed$(() => {
+    return cards.value.filter(({ dp }) => dp.project.group_id == null);
   });
 
   return (
@@ -162,17 +190,51 @@ export default component$(() => {
           </p>
         </div>
       ) : (
-        <div class="bm-cards flex flex-col gap-4">
-          {cards.value.map(({ dp, builds }) => (
-            <ProjectCard
-              key={dp.project.id}
-              dp={dp}
-              builds={builds}
-              envFilter={envFilter.value}
-              selectedEnv={selectedEnv}
-              onRefresh$={doRefresh}
-            />
-          ))}
+        <div class="flex flex-col gap-6">
+          {/* Visible groups */}
+          {visibleGroups.value.map((group) => {
+            const groupCards = cards.value.filter(({ dp }) => dp.project.group_id === group.id);
+            if (groupCards.length === 0) return null;
+            const isCollapsed = collapsedGroups.value.has(group.id);
+            return (
+              <div key={group.id}>
+                <button
+                  class="mb-3 flex w-full items-center gap-2 text-left"
+                  onClick$={() => toggleGroup(group.id)}
+                >
+                  <svg class={`h-3.5 w-3.5 text-muted transition-transform ${isCollapsed ? "" : "rotate-90"}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="9 18 15 12 9 6" />
+                  </svg>
+                  <span class="text-sm font-semibold text-text">{group.name}</span>
+                  <span class="text-xs text-muted">{groupCards.length} project{groupCards.length !== 1 ? "s" : ""}</span>
+                </button>
+                {!isCollapsed && (
+                  <div class="bm-cards flex flex-col gap-4">
+                    {groupCards.map(({ dp, builds }) => (
+                      <ProjectCard key={dp.project.id} dp={dp} builds={builds} envFilter={envFilter.value} selectedEnv={selectedEnv} onRefresh$={doRefresh} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Ungrouped projects */}
+          {ungroupedCards.value.length > 0 && (
+            <div>
+              {visibleGroups.value.length > 0 && (
+                <div class="mb-3 flex items-center gap-2">
+                  <span class="text-sm font-semibold text-text">Ungrouped</span>
+                  <span class="text-xs text-muted">{ungroupedCards.value.length} project{ungroupedCards.value.length !== 1 ? "s" : ""}</span>
+                </div>
+              )}
+              <div class="bm-cards flex flex-col gap-4">
+                {ungroupedCards.value.map(({ dp, builds }) => (
+                  <ProjectCard key={dp.project.id} dp={dp} builds={builds} envFilter={envFilter.value} selectedEnv={selectedEnv} onRefresh$={doRefresh} />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

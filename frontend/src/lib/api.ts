@@ -83,3 +83,16 @@ export const syncProject = (projectId: number) =>
 export const fetchHosts = () => get<import("~/lib/types").Host[]>("/hosts");
 export const fetchHostMetrics = (hostId: number, limit = 60) =>
   get<import("~/lib/types").HostMetric[]>(`/hosts/${hostId}/metrics?limit=${limit}`);
+
+// Project Groups
+export const fetchGroups = () => get<import("~/lib/types").ProjectGroup[]>("/groups");
+export const createGroup = (data: { name: string; visible?: boolean; sort_order?: number }) =>
+  post<import("~/lib/types").ProjectGroup>("/groups", data);
+export const updateGroup = (id: number, data: Partial<import("~/lib/types").ProjectGroup>) =>
+  put<import("~/lib/types").ProjectGroup>(`/groups/${id}`, data);
+export const deleteGroup = (id: number) =>
+  del<{ message: string }>(`/groups/${id}`);
+export const fetchGroupBySlug = (slug: string) =>
+  get<import("~/lib/types").ProjectGroup>(`/groups/slug/${slug}`);
+export const assignProjectToGroup = (projectId: number, groupId: number | null) =>
+  put<{ message: string }>(`/projects/${projectId}/group`, { group_id: groupId });

@@ -48,6 +48,7 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 	vsnapH := &VersionSnapshotHandler{store: s}
 	metricH := &MetricHandler{store: s}
 	hostH := &HostHandler{store: s}
+	groupH := &GroupHandler{store: s}
 
 	// Health + version
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -96,6 +97,15 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 		r.Post("/api/hosts/{hostId}/link", hostH.LinkProject)
 		r.Delete("/api/hosts/{hostId}/projects/{projectId}", hostH.UnlinkProject)
 		r.Get("/api/hosts/{hostId}/metrics", hostH.ListMetrics)
+
+		// Project Groups
+		r.Get("/api/groups", groupH.List)
+		r.Post("/api/groups", groupH.Create)
+		r.Get("/api/groups/{groupId}", groupH.Get)
+		r.Get("/api/groups/slug/{slug}", groupH.GetBySlug)
+		r.Put("/api/groups/{groupId}", groupH.Update)
+		r.Delete("/api/groups/{groupId}", groupH.Delete)
+		r.Put("/api/projects/{projectId}/group", groupH.AssignProject)
 
 		// Dashboard + Sync + Drift
 		r.Get("/api/dashboard", syncH.Dashboard)

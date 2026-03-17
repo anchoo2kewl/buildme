@@ -268,4 +268,17 @@ var migrations = []string{
 	"ALTER TABLE host_projects ADD COLUMN env TEXT NOT NULL DEFAULT 'production'",
 	"ALTER TABLE resource_incidents ADD COLUMN ignored INTEGER NOT NULL DEFAULT 0",
 	"ALTER TABLE resource_incidents ADD COLUMN ignored_at DATETIME",
+	// Project groups
+	`CREATE TABLE IF NOT EXISTS project_groups (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL,
+		slug TEXT NOT NULL UNIQUE,
+		visible INTEGER NOT NULL DEFAULT 1,
+		sort_order INTEGER NOT NULL DEFAULT 0,
+		created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+		updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
+	)`,
+	"CREATE INDEX IF NOT EXISTS idx_project_groups_slug ON project_groups(slug)",
+	"ALTER TABLE projects ADD COLUMN group_id INTEGER REFERENCES project_groups(id) ON DELETE SET NULL",
+	"CREATE INDEX IF NOT EXISTS idx_projects_group_id ON projects(group_id)",
 }

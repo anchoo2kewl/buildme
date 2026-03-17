@@ -134,4 +134,13 @@ type Store interface {
 	ListHostProjectLinks(ctx context.Context, hostID int64) ([]models.HostProject, error)
 	CreateHostMetric(ctx context.Context, m *models.HostMetric) error
 	ListHostMetrics(ctx context.Context, hostID int64, limit int) ([]models.HostMetric, error)
+
+	// Project Groups
+	CreateProjectGroup(ctx context.Context, g *models.ProjectGroup) error
+	GetProjectGroupByID(ctx context.Context, id int64) (*models.ProjectGroup, error)
+	GetProjectGroupBySlug(ctx context.Context, slug string) (*models.ProjectGroup, error)
+	UpdateProjectGroup(ctx context.Context, g *models.ProjectGroup) error
+	DeleteProjectGroup(ctx context.Context, id int64) error
+	ListProjectGroups(ctx context.Context) ([]models.ProjectGroup, error)
+	SetProjectGroup(ctx context.Context, projectID int64, groupID *int64) error
 }

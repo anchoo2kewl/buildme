@@ -11,6 +11,7 @@ export function getRouteParams(): Record<string, string> {
   //   /dashboard/projects/{projectId}/settings
   //   /dashboard/projects/{projectId}/members
   //   /dashboard/projects/{projectId}/builds/{buildId}
+  //   /dashboard/groups/{slug}
   const params: Record<string, string> = {};
   const pidIdx = parts.indexOf("projects");
   if (pidIdx >= 0 && pidIdx + 1 < parts.length) {
@@ -19,6 +20,10 @@ export function getRouteParams(): Record<string, string> {
   const bidIdx = parts.indexOf("builds");
   if (bidIdx >= 0 && bidIdx + 1 < parts.length) {
     params.buildId = parts[bidIdx + 1];
+  }
+  const gidIdx = parts.indexOf("groups");
+  if (gidIdx >= 0 && gidIdx + 1 < parts.length) {
+    params.slug = parts[gidIdx + 1];
   }
   return params;
 }

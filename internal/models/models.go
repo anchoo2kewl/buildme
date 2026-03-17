@@ -116,8 +116,21 @@ type Project struct {
 	VersionField  string    `json:"version_field,omitempty"`
 	HealthPath    string    `json:"health_path,omitempty"`
 	Metadata      string    `json:"metadata,omitempty"`
+	GroupID       *int64    `json:"group_id,omitempty"`
+	GroupName     string    `json:"group_name,omitempty"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// ProjectGroup represents a named group of projects.
+type ProjectGroup struct {
+	ID        int64     `json:"id"`
+	Name      string    `json:"name"`
+	Slug      string    `json:"slug"`
+	Visible   bool      `json:"visible"`
+	SortOrder int       `json:"sort_order"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // ProjectMember represents a user's membership in a project.

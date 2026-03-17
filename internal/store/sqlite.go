@@ -97,8 +97,8 @@ func (s *SQLiteStore) CreateProject(ctx context.Context, p *models.Project) erro
 		p.Metadata = "{}"
 	}
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO projects (name, slug, description, staging_url, uat_url, production_url, version_path, version_field, health_path, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.Name, p.Slug, p.Description, p.StagingURL, p.UATURL, p.ProductionURL, p.VersionPath, p.VersionField, p.HealthPath, p.Metadata)
+		`INSERT INTO projects (name, slug, description, staging_url, uat_url, production_url, version_path, version_field, health_path, metadata, group_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.Name, p.Slug, p.Description, p.StagingURL, p.UATURL, p.ProductionURL, p.VersionPath, p.VersionField, p.HealthPath, p.Metadata, p.GroupID)
 	if err != nil {
 		return err
 	}
@@ -108,22 +108,30 @@ func (s *SQLiteStore) CreateProject(ctx context.Context, p *models.Project) erro
 
 func (s *SQLiteStore) GetProjectByID(ctx context.Context, id int64) (*models.Project, error) {
 	p := &models.Project{}
+	var groupID sql.NullInt64
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, name, slug, description, staging_url, uat_url, production_url, version_path, version_field, health_path, metadata, created_at, updated_at FROM projects WHERE id = ?`, id).
-		Scan(&p.ID, &p.Name, &p.Slug, &p.Description, &p.StagingURL, &p.UATURL, &p.ProductionURL, &p.VersionPath, &p.VersionField, &p.HealthPath, &p.Metadata, &p.CreatedAt, &p.UpdatedAt)
+		`SELECT id, name, slug, description, staging_url, uat_url, production_url, version_path, version_field, health_path, metadata, group_id, created_at, updated_at FROM projects WHERE id = ?`, id).
+		Scan(&p.ID, &p.Name, &p.Slug, &p.Description, &p.StagingURL, &p.UATURL, &p.ProductionURL, &p.VersionPath, &p.VersionField, &p.HealthPath, &p.Metadata, &groupID, &p.CreatedAt, &p.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
+	}
+	if groupID.Valid {
+		p.GroupID = &groupID.Int64
 	}
 	return p, err
 }
 
 func (s *SQLiteStore) GetProjectBySlug(ctx context.Context, slug string) (*models.Project, error) {
 	p := &models.Project{}
+	var groupID sql.NullInt64
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, name, slug, description, staging_url, uat_url, production_url, version_path, version_field, health_path, metadata, created_at, updated_at FROM projects WHERE slug = ?`, slug).
-		Scan(&p.ID, &p.Name, &p.Slug, &p.Description, &p.StagingURL, &p.UATURL, &p.ProductionURL, &p.VersionPath, &p.VersionField, &p.HealthPath, &p.Metadata, &p.CreatedAt, &p.UpdatedAt)
+		`SELECT id, name, slug, description, staging_url, uat_url, production_url, version_path, version_field, health_path, metadata, group_id, created_at, updated_at FROM projects WHERE slug = ?`, slug).
+		Scan(&p.ID, &p.Name, &p.Slug, &p.Description, &p.StagingURL, &p.UATURL, &p.ProductionURL, &p.VersionPath, &p.VersionField, &p.HealthPath, &p.Metadata, &groupID, &p.CreatedAt, &p.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
+	}
+	if groupID.Valid {
+		p.GroupID = &groupID.Int64
 	}
 	return p, err
 }
@@ -133,8 +141,8 @@ func (s *SQLiteStore) UpdateProject(ctx context.Context, p *models.Project) erro
 		p.Metadata = "{}"
 	}
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE projects SET name=?, slug=?, description=?, staging_url=?, uat_url=?, production_url=?, version_path=?, version_field=?, health_path=?, metadata=?, updated_at=datetime('now') WHERE id=?`,
-		p.Name, p.Slug, p.Description, p.StagingURL, p.UATURL, p.ProductionURL, p.VersionPath, p.VersionField, p.HealthPath, p.Metadata, p.ID)
+		`UPDATE projects SET name=?, slug=?, description=?, staging_url=?, uat_url=?, production_url=?, version_path=?, version_field=?, health_path=?, metadata=?, group_id=?, updated_at=datetime('now') WHERE id=?`,
+		p.Name, p.Slug, p.Description, p.StagingURL, p.UATURL, p.ProductionURL, p.VersionPath, p.VersionField, p.HealthPath, p.Metadata, p.GroupID, p.ID)
 	return err
 }
 
@@ -145,9 +153,10 @@ func (s *SQLiteStore) DeleteProject(ctx context.Context, id int64) error {
 
 func (s *SQLiteStore) ListProjectsForUser(ctx context.Context, userID int64) ([]models.Project, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT p.id, p.name, p.slug, p.description, p.staging_url, p.uat_url, p.production_url, p.version_path, p.version_field, p.health_path, p.metadata, p.created_at, p.updated_at
+		`SELECT p.id, p.name, p.slug, p.description, p.staging_url, p.uat_url, p.production_url, p.version_path, p.version_field, p.health_path, p.metadata, p.group_id, pg.name, p.created_at, p.updated_at
 		 FROM projects p
 		 JOIN project_members pm ON pm.project_id = p.id
+		 LEFT JOIN project_groups pg ON pg.id = p.group_id
 		 WHERE pm.user_id = ?
 		 ORDER BY p.name`, userID)
 	if err != nil {
@@ -158,8 +167,16 @@ func (s *SQLiteStore) ListProjectsForUser(ctx context.Context, userID int64) ([]
 	var projects []models.Project
 	for rows.Next() {
 		var p models.Project
-		if err := rows.Scan(&p.ID, &p.Name, &p.Slug, &p.Description, &p.StagingURL, &p.UATURL, &p.ProductionURL, &p.VersionPath, &p.VersionField, &p.HealthPath, &p.Metadata, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		var groupID sql.NullInt64
+		var groupName sql.NullString
+		if err := rows.Scan(&p.ID, &p.Name, &p.Slug, &p.Description, &p.StagingURL, &p.UATURL, &p.ProductionURL, &p.VersionPath, &p.VersionField, &p.HealthPath, &p.Metadata, &groupID, &groupName, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
+		}
+		if groupID.Valid {
+			p.GroupID = &groupID.Int64
+		}
+		if groupName.Valid {
+			p.GroupName = groupName.String
 		}
 		projects = append(projects, p)
 	}
@@ -1005,8 +1022,10 @@ func (s *SQLiteStore) PruneResourceIncidents(ctx context.Context, olderThan time
 
 func (s *SQLiteStore) ListAllProjects(ctx context.Context) ([]models.Project, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, slug, description, staging_url, uat_url, production_url, version_path, version_field, health_path, metadata, created_at, updated_at
-		 FROM projects ORDER BY name`)
+		`SELECT p.id, p.name, p.slug, p.description, p.staging_url, p.uat_url, p.production_url, p.version_path, p.version_field, p.health_path, p.metadata, p.group_id, pg.name, p.created_at, p.updated_at
+		 FROM projects p
+		 LEFT JOIN project_groups pg ON pg.id = p.group_id
+		 ORDER BY p.name`)
 	if err != nil {
 		return nil, err
 	}
@@ -1015,8 +1034,16 @@ func (s *SQLiteStore) ListAllProjects(ctx context.Context) ([]models.Project, er
 	var projects []models.Project
 	for rows.Next() {
 		var p models.Project
-		if err := rows.Scan(&p.ID, &p.Name, &p.Slug, &p.Description, &p.StagingURL, &p.UATURL, &p.ProductionURL, &p.VersionPath, &p.VersionField, &p.HealthPath, &p.Metadata, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		var groupID sql.NullInt64
+		var groupName sql.NullString
+		if err := rows.Scan(&p.ID, &p.Name, &p.Slug, &p.Description, &p.StagingURL, &p.UATURL, &p.ProductionURL, &p.VersionPath, &p.VersionField, &p.HealthPath, &p.Metadata, &groupID, &groupName, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
+		}
+		if groupID.Valid {
+			p.GroupID = &groupID.Int64
+		}
+		if groupName.Valid {
+			p.GroupName = groupName.String
 		}
 		projects = append(projects, p)
 	}
