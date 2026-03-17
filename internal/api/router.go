@@ -107,6 +107,12 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 		r.Delete("/api/groups/{groupId}", groupH.Delete)
 		r.Put("/api/projects/{projectId}/group", groupH.AssignProject)
 
+		// Group Members
+		r.Get("/api/groups/{groupId}/members", groupH.ListMembers)
+		r.Post("/api/groups/{groupId}/members", groupH.AddMember)
+		r.Patch("/api/groups/{groupId}/members/{memberId}/role", groupH.UpdateMemberRole)
+		r.Delete("/api/groups/{groupId}/members/{memberId}", groupH.RemoveMember)
+
 		// Dashboard + Sync + Drift
 		r.Get("/api/dashboard", syncH.Dashboard)
 		r.Post("/api/sync", syncH.SyncAll)

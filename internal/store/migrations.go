@@ -281,4 +281,13 @@ var migrations = []string{
 	"CREATE INDEX IF NOT EXISTS idx_project_groups_slug ON project_groups(slug)",
 	"ALTER TABLE projects ADD COLUMN group_id INTEGER REFERENCES project_groups(id) ON DELETE SET NULL",
 	"CREATE INDEX IF NOT EXISTS idx_projects_group_id ON projects(group_id)",
+	// Group members
+	`CREATE TABLE IF NOT EXISTS group_members (
+		group_id INTEGER NOT NULL REFERENCES project_groups(id) ON DELETE CASCADE,
+		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		role TEXT NOT NULL DEFAULT 'viewer',
+		created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+		PRIMARY KEY (group_id, user_id)
+	)`,
+	"CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members(user_id)",
 }

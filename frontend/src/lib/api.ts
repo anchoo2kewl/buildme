@@ -96,3 +96,13 @@ export const fetchGroupBySlug = (slug: string) =>
   get<import("~/lib/types").ProjectGroup>(`/groups/slug/${slug}`);
 export const assignProjectToGroup = (projectId: number, groupId: number | null) =>
   put<{ message: string }>(`/projects/${projectId}/group`, { group_id: groupId });
+
+// Group Members
+export const fetchGroupMembers = (groupId: number) =>
+  get<import("~/lib/types").GroupMember[]>(`/groups/${groupId}/members`);
+export const addGroupMember = (groupId: number, data: { email?: string; user_id?: number; role?: string }) =>
+  post<import("~/lib/types").GroupMember>(`/groups/${groupId}/members`, data);
+export const updateGroupMemberRole = (groupId: number, userId: number, role: string) =>
+  patch<{ message: string }>(`/groups/${groupId}/members/${userId}/role`, { role });
+export const removeGroupMember = (groupId: number, userId: number) =>
+  del<{ message: string }>(`/groups/${groupId}/members/${userId}`);

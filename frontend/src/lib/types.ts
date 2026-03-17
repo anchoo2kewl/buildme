@@ -82,6 +82,14 @@ export interface ProjectGroup {
   updated_at: string;
 }
 
+export interface GroupMember {
+  group_id: number;
+  user_id: number;
+  role: ProjectRole;
+  created_at: string;
+  user?: User;
+}
+
 export function parseMetadata(p: Project): ProjectMetadata {
   if (!p.metadata || p.metadata === "{}") return {};
   try {

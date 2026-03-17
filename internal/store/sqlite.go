@@ -158,7 +158,13 @@ func (s *SQLiteStore) ListProjectsForUser(ctx context.Context, userID int64) ([]
 		 JOIN project_members pm ON pm.project_id = p.id
 		 LEFT JOIN project_groups pg ON pg.id = p.group_id
 		 WHERE pm.user_id = ?
-		 ORDER BY p.name`, userID)
+		 UNION
+		 SELECT p.id, p.name, p.slug, p.description, p.staging_url, p.uat_url, p.production_url, p.version_path, p.version_field, p.health_path, p.metadata, p.group_id, pg.name, p.created_at, p.updated_at
+		 FROM projects p
+		 JOIN group_members gm ON gm.group_id = p.group_id
+		 LEFT JOIN project_groups pg ON pg.id = p.group_id
+		 WHERE gm.user_id = ?
+		 ORDER BY 2`, userID, userID)
 	if err != nil {
 		return nil, err
 	}

@@ -80,3 +80,73 @@ func (s *SQLiteStore) SetProjectGroup(ctx context.Context, projectID int64, grou
 		`UPDATE projects SET group_id=?, updated_at=datetime('now') WHERE id=?`, groupID, projectID)
 	return err
 }
+
+// --- Group Members ---
+
+func (s *SQLiteStore) AddGroupMember(ctx context.Context, m *models.GroupMember) error {
+	m.CreatedAt = time.Now().UTC()
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO group_members (group_id, user_id, role, created_at) VALUES (?, ?, ?, ?)`,
+		m.GroupID, m.UserID, m.Role, m.CreatedAt)
+	return err
+}
+
+func (s *SQLiteStore) GetGroupMember(ctx context.Context, groupID, userID int64) (*models.GroupMember, error) {
+	m := &models.GroupMember{}
+	err := s.db.QueryRowContext(ctx,
+		`SELECT group_id, user_id, role, created_at FROM group_members WHERE group_id=? AND user_id=?`,
+		groupID, userID).Scan(&m.GroupID, &m.UserID, &m.Role, &m.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return m, err
+}
+
+func (s *SQLiteStore) UpdateGroupMemberRole(ctx context.Context, groupID, userID int64, role models.ProjectRole) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE group_members SET role=? WHERE group_id=? AND user_id=?`,
+		role, groupID, userID)
+	return err
+}
+
+func (s *SQLiteStore) RemoveGroupMember(ctx context.Context, groupID, userID int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM group_members WHERE group_id=? AND user_id=?`, groupID, userID)
+	return err
+}
+
+func (s *SQLiteStore) ListGroupMembers(ctx context.Context, groupID int64) ([]models.GroupMember, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT gm.group_id, gm.user_id, gm.role, gm.created_at,
+		        u.id, u.email, u.display_name, u.avatar_url, u.is_super_admin
+		 FROM group_members gm
+		 JOIN users u ON u.id = gm.user_id
+		 WHERE gm.group_id = ?
+		 ORDER BY gm.created_at`, groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var members []models.GroupMember
+	for rows.Next() {
+		var m models.GroupMember
+		u := &models.User{}
+		if err := rows.Scan(&m.GroupID, &m.UserID, &m.Role, &m.CreatedAt,
+			&u.ID, &u.Email, &u.DisplayName, &u.AvatarURL, &u.IsSuperAdmin); err != nil {
+			return nil, err
+		}
+		m.User = u
+		members = append(members, m)
+	}
+	return members, rows.Err()
+}
+
+func (s *SQLiteStore) GetUserGroupRole(ctx context.Context, userID int64, groupID int64) (models.ProjectRole, error) {
+	var role models.ProjectRole
+	err := s.db.QueryRowContext(ctx,
+		`SELECT role FROM group_members WHERE user_id=? AND group_id=?`,
+		userID, groupID).Scan(&role)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return role, err
+}

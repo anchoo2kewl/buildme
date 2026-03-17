@@ -1,6 +1,6 @@
 import { component$, useSignal, useVisibleTask$, useComputed$, $ } from "@builder.io/qwik";
-import { fetchGroups, createGroup, updateGroup, deleteGroup, fetchDrift, assignProjectToGroup } from "~/lib/api";
-import type { ProjectGroup, DriftProject } from "~/lib/types";
+import { fetchGroups, createGroup, updateGroup, deleteGroup, fetchDrift, assignProjectToGroup, fetchGroupMembers, addGroupMember, updateGroupMemberRole, removeGroupMember } from "~/lib/api";
+import type { ProjectGroup, DriftProject, GroupMember } from "~/lib/types";
 
 export default component$(() => {
   const groups = useSignal<ProjectGroup[]>([]);
@@ -24,6 +24,14 @@ export default component$(() => {
   // Assign modal
   const assigningGroupId = useSignal<number | null>(null);
   const copiedSlug = useSignal<string | null>(null);
+
+  // Members
+  const membersGroupId = useSignal<number | null>(null);
+  const members = useSignal<GroupMember[]>([]);
+  const membersLoading = useSignal(false);
+  const addEmail = useSignal("");
+  const addRole = useSignal("viewer");
+  const addError = useSignal("");
 
   const loadData = $(async () => {
     const [g, d] = await Promise.all([
@@ -302,6 +310,30 @@ export default component$(() => {
                       )}
                     </button>
                     <button
+                      class={`rounded p-1.5 transition-colors ${membersGroupId.value === group.id ? "text-accent" : "text-muted hover:text-accent"}`}
+                      title="Manage members"
+                      onClick$={async () => {
+                        if (membersGroupId.value === group.id) {
+                          membersGroupId.value = null;
+                          return;
+                        }
+                        membersGroupId.value = group.id;
+                        membersLoading.value = true;
+                        addError.value = "";
+                        try {
+                          members.value = await fetchGroupMembers(group.id) ?? [];
+                        } catch { members.value = []; }
+                        membersLoading.value = false;
+                      }}
+                    >
+                      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                        <circle cx="9" cy="7" r="4" />
+                        <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                      </svg>
+                    </button>
+                    <button
                       class="rounded p-1.5 text-muted transition-colors hover:text-accent"
                       title="Assign projects"
                       onClick$={() => { assigningGroupId.value = assigningGroupId.value === group.id ? null : group.id; }}
@@ -396,6 +428,115 @@ export default component$(() => {
                         ))}
                       </div>
                     </>
+                  )}
+                </div>
+              )}
+
+              {/* Members panel */}
+              {membersGroupId.value === group.id && (
+                <div class="border-t border-border px-5 py-4">
+                  <p class="mb-3 text-xs font-semibold uppercase tracking-wider text-muted">
+                    Group members
+                  </p>
+                  <p class="mb-3 text-xs text-muted">
+                    Members of this group get access to all projects in it.
+                  </p>
+
+                  {addError.value && (
+                    <div class="mb-3 rounded-lg bg-failure/20 px-3 py-2 text-xs text-failure">
+                      {addError.value}
+                    </div>
+                  )}
+
+                  {/* Add member form */}
+                  <div class="mb-4 flex items-center gap-2">
+                    <input
+                      type="email"
+                      placeholder="Email address"
+                      class="flex-1 rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-text placeholder:text-muted focus:border-accent focus:outline-none"
+                      value={addEmail.value}
+                      onInput$={(e: Event) => { addEmail.value = (e.target as HTMLInputElement).value; }}
+                    />
+                    <select
+                      class="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-text focus:border-accent focus:outline-none"
+                      value={addRole.value}
+                      onChange$={(e: Event) => { addRole.value = (e.target as HTMLSelectElement).value; }}
+                    >
+                      <option value="viewer">Viewer</option>
+                      <option value="editor">Editor</option>
+                      <option value="admin">Admin</option>
+                      <option value="owner">Owner</option>
+                    </select>
+                    <button
+                      class="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent/80"
+                      onClick$={async () => {
+                        const email = addEmail.value.trim();
+                        if (!email) return;
+                        addError.value = "";
+                        try {
+                          await addGroupMember(group.id, { email, role: addRole.value });
+                          addEmail.value = "";
+                          members.value = await fetchGroupMembers(group.id) ?? [];
+                        } catch (e: any) {
+                          addError.value = e.message || "Failed to add member";
+                        }
+                      }}
+                    >
+                      Add
+                    </button>
+                  </div>
+
+                  {/* Member list */}
+                  {membersLoading.value ? (
+                    <div class="flex items-center justify-center py-4">
+                      <div class="h-5 w-5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+                    </div>
+                  ) : members.value.length === 0 ? (
+                    <p class="text-xs text-muted">No members yet.</p>
+                  ) : (
+                    <div class="space-y-1.5">
+                      {members.value.map((m) => (
+                        <div key={m.user_id} class="flex items-center justify-between rounded-lg bg-surface/50 px-3 py-2">
+                          <div class="flex items-center gap-2">
+                            <span class="text-sm text-text">{m.user?.display_name || m.user?.email || `User #${m.user_id}`}</span>
+                            {m.user?.email && m.user.display_name && (
+                              <span class="text-xs text-muted">{m.user.email}</span>
+                            )}
+                          </div>
+                          <div class="flex items-center gap-2">
+                            <select
+                              class="rounded border border-border bg-surface px-2 py-1 text-xs text-text focus:border-accent focus:outline-none"
+                              value={m.role}
+                              onChange$={async (e: Event) => {
+                                const newRole = (e.target as HTMLSelectElement).value;
+                                try {
+                                  await updateGroupMemberRole(group.id, m.user_id, newRole);
+                                  members.value = members.value.map((mem) =>
+                                    mem.user_id === m.user_id ? { ...mem, role: newRole as any } : mem
+                                  );
+                                } catch { /* ignore */ }
+                              }}
+                            >
+                              <option value="viewer">Viewer</option>
+                              <option value="editor">Editor</option>
+                              <option value="admin">Admin</option>
+                              <option value="owner">Owner</option>
+                            </select>
+                            <button
+                              class="text-xs text-muted transition-colors hover:text-failure"
+                              onClick$={async () => {
+                                try {
+                                  await removeGroupMember(group.id, m.user_id);
+                                  members.value = members.value.filter((mem) => mem.user_id !== m.user_id);
+                                } catch { /* ignore */ }
+                              }}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
               )}

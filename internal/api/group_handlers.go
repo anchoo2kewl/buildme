@@ -162,3 +162,110 @@ func (h *GroupHandler) AssignProject(w http.ResponseWriter, r *http.Request) {
 	}
 	jsonResp(w, http.StatusOK, map[string]string{"message": "project group updated"})
 }
+
+// --- Group Members ---
+
+func (h *GroupHandler) ListMembers(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "groupId"), 10, 64)
+	if err != nil {
+		jsonError(w, "invalid group id", http.StatusBadRequest)
+		return
+	}
+	members, err := h.store.ListGroupMembers(r.Context(), id)
+	if err != nil {
+		jsonError(w, "failed to list members", http.StatusInternalServerError)
+		return
+	}
+	if members == nil {
+		members = []models.GroupMember{}
+	}
+	jsonResp(w, http.StatusOK, members)
+}
+
+func (h *GroupHandler) AddMember(w http.ResponseWriter, r *http.Request) {
+	groupID, err := strconv.ParseInt(chi.URLParam(r, "groupId"), 10, 64)
+	if err != nil {
+		jsonError(w, "invalid group id", http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		UserID int64  `json:"user_id"`
+		Email  string `json:"email"`
+		Role   string `json:"role"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	// Allow adding by email
+	userID := req.UserID
+	if userID == 0 && req.Email != "" {
+		user, err := h.store.GetUserByEmail(r.Context(), strings.TrimSpace(req.Email))
+		if err != nil || user == nil {
+			jsonError(w, "user not found", http.StatusNotFound)
+			return
+		}
+		userID = user.ID
+	}
+	if userID == 0 {
+		jsonError(w, "user_id or email is required", http.StatusBadRequest)
+		return
+	}
+	role := models.ProjectRole(req.Role)
+	if role == "" {
+		role = models.RoleViewer
+	}
+	m := &models.GroupMember{GroupID: groupID, UserID: userID, Role: role}
+	if err := h.store.AddGroupMember(r.Context(), m); err != nil {
+		if strings.Contains(err.Error(), "UNIQUE") || strings.Contains(err.Error(), "constraint") {
+			jsonError(w, "user is already a member of this group", http.StatusConflict)
+			return
+		}
+		jsonError(w, "failed to add member", http.StatusInternalServerError)
+		return
+	}
+	jsonResp(w, http.StatusCreated, m)
+}
+
+func (h *GroupHandler) UpdateMemberRole(w http.ResponseWriter, r *http.Request) {
+	groupID, err := strconv.ParseInt(chi.URLParam(r, "groupId"), 10, 64)
+	if err != nil {
+		jsonError(w, "invalid group id", http.StatusBadRequest)
+		return
+	}
+	memberID, err := strconv.ParseInt(chi.URLParam(r, "memberId"), 10, 64)
+	if err != nil {
+		jsonError(w, "invalid member id", http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		Role string `json:"role"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if err := h.store.UpdateGroupMemberRole(r.Context(), groupID, memberID, models.ProjectRole(req.Role)); err != nil {
+		jsonError(w, "failed to update role", http.StatusInternalServerError)
+		return
+	}
+	jsonResp(w, http.StatusOK, map[string]string{"message": "role updated"})
+}
+
+func (h *GroupHandler) RemoveMember(w http.ResponseWriter, r *http.Request) {
+	groupID, err := strconv.ParseInt(chi.URLParam(r, "groupId"), 10, 64)
+	if err != nil {
+		jsonError(w, "invalid group id", http.StatusBadRequest)
+		return
+	}
+	memberID, err := strconv.ParseInt(chi.URLParam(r, "memberId"), 10, 64)
+	if err != nil {
+		jsonError(w, "invalid member id", http.StatusBadRequest)
+		return
+	}
+	if err := h.store.RemoveGroupMember(r.Context(), groupID, memberID); err != nil {
+		jsonError(w, "failed to remove member", http.StatusInternalServerError)
+		return
+	}
+	jsonResp(w, http.StatusOK, map[string]string{"message": "member removed"})
+}

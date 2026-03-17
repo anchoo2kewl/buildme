@@ -143,4 +143,12 @@ type Store interface {
 	DeleteProjectGroup(ctx context.Context, id int64) error
 	ListProjectGroups(ctx context.Context) ([]models.ProjectGroup, error)
 	SetProjectGroup(ctx context.Context, projectID int64, groupID *int64) error
+
+	// Group Members
+	AddGroupMember(ctx context.Context, m *models.GroupMember) error
+	GetGroupMember(ctx context.Context, groupID, userID int64) (*models.GroupMember, error)
+	UpdateGroupMemberRole(ctx context.Context, groupID, userID int64, role models.ProjectRole) error
+	RemoveGroupMember(ctx context.Context, groupID, userID int64) error
+	ListGroupMembers(ctx context.Context, groupID int64) ([]models.GroupMember, error)
+	GetUserGroupRole(ctx context.Context, userID int64, groupID int64) (models.ProjectRole, error)
 }

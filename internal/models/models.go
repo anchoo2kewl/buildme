@@ -133,6 +133,15 @@ type ProjectGroup struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// GroupMember represents a user's membership in a project group.
+type GroupMember struct {
+	GroupID   int64       `json:"group_id"`
+	UserID    int64       `json:"user_id"`
+	Role      ProjectRole `json:"role"`
+	CreatedAt time.Time   `json:"created_at"`
+	User      *User       `json:"user,omitempty"`
+}
+
 // ProjectMember represents a user's membership in a project.
 type ProjectMember struct {
 	ProjectID int64       `json:"project_id"`

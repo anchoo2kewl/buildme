@@ -124,15 +124,28 @@ func ProjectAccess(s store.Store) func(http.Handler) http.Handler {
 				return
 			}
 
+			// Check direct project membership
 			member, err := s.GetProjectMember(r.Context(), projectID, userID)
-			if err != nil || member == nil {
-				http.Error(w, `{"error":"not a member of this project"}`, http.StatusForbidden)
+			if err == nil && member != nil {
+				ctx := context.WithValue(r.Context(), ctxProjectID, projectID)
+				ctx = context.WithValue(ctx, ctxRole, member.Role)
+				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), ctxProjectID, projectID)
-			ctx = context.WithValue(ctx, ctxRole, member.Role)
-			next.ServeHTTP(w, r.WithContext(ctx))
+			// Check group membership (project's group -> user is group member)
+			project, err := s.GetProjectByID(r.Context(), projectID)
+			if err == nil && project != nil && project.GroupID != nil {
+				role, err := s.GetUserGroupRole(r.Context(), userID, *project.GroupID)
+				if err == nil && role != "" {
+					ctx := context.WithValue(r.Context(), ctxProjectID, projectID)
+					ctx = context.WithValue(ctx, ctxRole, role)
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+			}
+
+			http.Error(w, `{"error":"not a member of this project"}`, http.StatusForbidden)
 		})
 	}
 }
