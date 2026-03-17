@@ -9,6 +9,7 @@ import { useNavigate } from "@builder.io/qwik-city";
 import { Header } from "~/components/layout/header";
 import { Sidebar } from "~/components/layout/sidebar";
 import { AuthContext, type AuthState } from "~/context/auth-context";
+import { SidebarContext, type SidebarState } from "~/context/sidebar-context";
 import { WSContext, type WSState } from "~/context/ws-context";
 import { get } from "~/lib/api";
 import { BuildMeWS } from "~/lib/ws";
@@ -24,8 +25,16 @@ export default component$(() => {
   });
   useContextProvider(AuthContext, auth);
 
+  const sidebar = useStore<SidebarState>({ pinned: true, hovering: false });
+  useContextProvider(SidebarContext, sidebar);
+
   const wsState = useStore<WSState>({ ws: null });
   useContextProvider(WSContext, wsState);
+
+  // Init sidebar pin state from localStorage (client only)
+  useVisibleTask$(() => {
+    sidebar.pinned = localStorage.getItem("buildme-sidebar-pinned") !== "false";
+  });
 
   useVisibleTask$(async () => {
     const token = localStorage.getItem("buildme_token");
