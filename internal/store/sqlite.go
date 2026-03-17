@@ -349,6 +349,32 @@ func (s *SQLiteStore) ListAllProvidersByType(ctx context.Context, providerType m
 	return providers, rows.Err()
 }
 
+func (s *SQLiteStore) ListAllCIProviders(ctx context.Context) ([]models.CIProviderWithProject, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT cp.id, cp.project_id, cp.provider_type, cp.display_name, cp.repo_owner, cp.repo_name,
+		        cp.poll_interval_s, cp.next_poll_at, cp.enabled, cp.created_at, cp.updated_at,
+		        p.name, p.slug
+		 FROM ci_providers cp
+		 JOIN projects p ON p.id = cp.project_id
+		 ORDER BY cp.provider_type, cp.display_name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var providers []models.CIProviderWithProject
+	for rows.Next() {
+		var p models.CIProviderWithProject
+		if err := rows.Scan(&p.ID, &p.ProjectID, &p.ProviderType, &p.DisplayName, &p.RepoOwner, &p.RepoName,
+			&p.PollIntervalS, &p.NextPollAt, &p.Enabled, &p.CreatedAt, &p.UpdatedAt,
+			&p.ProjectName, &p.ProjectSlug); err != nil {
+			return nil, err
+		}
+		providers = append(providers, p)
+	}
+	return providers, rows.Err()
+}
+
 func (s *SQLiteStore) UpdateProviderNextPoll(ctx context.Context, id int64, next time.Time) error {
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE ci_providers SET next_poll_at=? WHERE id=?`, next, id)

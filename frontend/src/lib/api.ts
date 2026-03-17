@@ -84,6 +84,10 @@ export const fetchHosts = () => get<import("~/lib/types").Host[]>("/hosts");
 export const fetchHostMetrics = (hostId: number, limit = 60) =>
   get<import("~/lib/types").HostMetric[]>(`/hosts/${hostId}/metrics?limit=${limit}`);
 
+// Runners
+export const fetchRunners = () =>
+  get<import("~/lib/types").CIProviderWithProject[]>("/runners");
+
 // Project Groups
 export const fetchGroups = () => get<import("~/lib/types").ProjectGroup[]>("/groups");
 export const createGroup = (data: { name: string; visible?: boolean; sort_order?: number }) =>

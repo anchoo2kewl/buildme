@@ -98,6 +98,9 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 		r.Delete("/api/hosts/{hostId}/projects/{projectId}", hostH.UnlinkProject)
 		r.Get("/api/hosts/{hostId}/metrics", hostH.ListMetrics)
 
+		// Runners (all CI providers across projects)
+		r.Get("/api/runners", providerH.ListAll)
+
 		// Project Groups
 		r.Get("/api/groups", groupH.List)
 		r.Post("/api/groups", groupH.Create)

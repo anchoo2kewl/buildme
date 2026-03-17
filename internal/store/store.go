@@ -41,6 +41,7 @@ type Store interface {
 	ListCIProviders(ctx context.Context, projectID int64) ([]models.CIProvider, error)
 	GetDueProviders(ctx context.Context, now time.Time) ([]models.CIProvider, error)
 	ListAllProvidersByType(ctx context.Context, providerType models.ProviderType) ([]models.CIProvider, error)
+	ListAllCIProviders(ctx context.Context) ([]models.CIProviderWithProject, error)
 	UpdateProviderNextPoll(ctx context.Context, id int64, next time.Time) error
 
 	// Builds

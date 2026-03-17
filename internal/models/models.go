@@ -168,6 +168,13 @@ type CIProvider struct {
 	UpdatedAt      time.Time    `json:"updated_at"`
 }
 
+// CIProviderWithProject includes the project name for cross-project listings.
+type CIProviderWithProject struct {
+	CIProvider
+	ProjectName string `json:"project_name"`
+	ProjectSlug string `json:"project_slug"`
+}
+
 // Build represents a normalized build from any CI provider.
 type Build struct {
 	ID            int64       `json:"id"`

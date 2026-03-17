@@ -120,6 +120,11 @@ export interface CIProvider {
   updated_at: string;
 }
 
+export interface CIProviderWithProject extends CIProvider {
+  project_name: string;
+  project_slug: string;
+}
+
 export interface Build {
   id: number;
   project_id: number;

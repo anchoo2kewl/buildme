@@ -16,6 +16,18 @@ type ProviderHandler struct {
 	registry *provider.Registry
 }
 
+func (h *ProviderHandler) ListAll(w http.ResponseWriter, r *http.Request) {
+	providers, err := h.store.ListAllCIProviders(r.Context())
+	if err != nil {
+		jsonError(w, "failed to list runners", http.StatusInternalServerError)
+		return
+	}
+	if providers == nil {
+		providers = []models.CIProviderWithProject{}
+	}
+	jsonResp(w, http.StatusOK, providers)
+}
+
 func (h *ProviderHandler) List(w http.ResponseWriter, r *http.Request) {
 	projectID := ProjectIDFromCtx(r.Context())
 	providers, err := h.store.ListCIProviders(r.Context(), projectID)

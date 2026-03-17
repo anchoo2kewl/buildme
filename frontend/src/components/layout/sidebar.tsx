@@ -54,6 +54,16 @@ const navItems = [
     ),
   },
   {
+    href: "/dashboard/runners",
+    label: "Runners",
+    // Lucide: Play icon
+    icon: (
+      <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="5 3 19 12 5 21 5 3" />
+      </svg>
+    ),
+  },
+  {
     href: "/dashboard/projects",
     label: "Projects",
     // Lucide: FolderKanban
