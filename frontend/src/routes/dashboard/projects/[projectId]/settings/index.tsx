@@ -4,9 +4,9 @@ import { useLocation, type StaticGenerateHandler } from "@builder.io/qwik-city";
 export const onStaticGenerate: StaticGenerateHandler = async () => {
   return { params: [{ projectId: "_" }] };
 };
-import { get, post, put, del } from "~/lib/api";
+import { get, post, put, del, fetchGroups, assignProjectToGroup } from "~/lib/api";
 import { getRouteParams } from "~/lib/route-params";
-import type { CIProvider, Project, ProjectMetadata } from "~/lib/types";
+import type { CIProvider, Project, ProjectMetadata, ProjectGroup } from "~/lib/types";
 import { parseMetadata } from "~/lib/types";
 import { ProviderForm } from "~/components/projects/provider-form";
 import { CIProviderIcon, providerDisplayName } from "~/components/shared/ci-provider-icon";
@@ -19,6 +19,11 @@ export default component$(() => {
   const loading = useSignal(true);
 
   const project = useSignal<Project | null>(null);
+  const allGroups = useSignal<ProjectGroup[]>([]);
+  const selectedGroupId = useSignal<string>("");
+  const groupSaving = useSignal(false);
+  const groupSuccess = useSignal(false);
+
   const envSaving = useSignal(false);
   const envSuccess = useSignal(false);
   const envError = useSignal("");
@@ -64,10 +69,13 @@ export default component$(() => {
   useVisibleTask$(async () => {
     projectId.value = getRouteParams().projectId || projectId.value;
     try {
-      const [p, provs] = await Promise.all([
+      const [p, provs, grps] = await Promise.all([
         get<Project>(`/projects/${projectId.value}`),
         get<CIProvider[]>(`/projects/${projectId.value}/providers`),
+        fetchGroups().catch(() => []),
       ]);
+      allGroups.value = grps ?? [];
+      selectedGroupId.value = p.group_id != null ? String(p.group_id) : "";
       project.value = p;
       providers.value = provs;
       stagingUrl.value = p.staging_url || "";
@@ -108,6 +116,56 @@ export default component$(() => {
       <h1 class="mb-6 text-2xl font-bold text-text">Project Settings</h1>
 
       <div class="space-y-6">
+        {/* Group Assignment */}
+        <section>
+          <h2 class="mb-4 text-lg font-semibold text-text">Group</h2>
+          <p class="mb-4 text-sm text-muted">
+            Assign this project to a group for dashboard organization.
+          </p>
+          {groupSuccess.value && (
+            <div class="mb-4 rounded-lg bg-success/20 px-4 py-2 text-sm text-success">
+              Group updated.
+            </div>
+          )}
+          <div class="flex items-center gap-3 rounded-lg border border-border bg-elevated p-4">
+            <select
+              class="flex-1 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text focus:border-accent focus:outline-none"
+              value={selectedGroupId.value}
+              onChange$={(e: Event) => {
+                selectedGroupId.value = (e.target as HTMLSelectElement).value;
+              }}
+            >
+              <option value="">No group (ungrouped)</option>
+              {allGroups.value.map((g) => (
+                <option key={g.id} value={String(g.id)}>
+                  {g.name + (!g.visible ? " (hidden)" : "")}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={groupSaving.value}
+              class="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+              onClick$={async () => {
+                groupSaving.value = true;
+                groupSuccess.value = false;
+                try {
+                  const gid = selectedGroupId.value ? Number(selectedGroupId.value) : null;
+                  await assignProjectToGroup(Number(projectId.value), gid);
+                  if (project.value) {
+                    project.value = { ...project.value, group_id: gid ?? undefined };
+                  }
+                  groupSuccess.value = true;
+                  setTimeout(() => (groupSuccess.value = false), 3000);
+                } catch { /* ignore */ }
+                groupSaving.value = false;
+              }}
+            >
+              {groupSaving.value ? "Saving..." : "Save"}
+            </button>
+          </div>
+        </section>
+
         {/* Environment URLs */}
         <section>
           <h2 class="mb-4 text-lg font-semibold text-text">
