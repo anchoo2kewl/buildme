@@ -34,6 +34,7 @@ export default component$(() => {
   const lastChecked = useSignal<string | null>(null);
   const envFilter = useSignal<EnvFilter>("all");
   const error = useSignal<string | null>(null);
+  const copied = useSignal(false);
 
   const doRefresh = $(async () => {
     const slug = getRouteParams().slug || loc.params.slug;
@@ -139,6 +140,23 @@ export default component$(() => {
               Last checked {lastChecked.value}
             </span>
           )}
+          <button
+            class="inline-flex items-center gap-1.5 rounded-lg border border-border bg-elevated px-3 py-1.5 text-sm text-text transition-all hover:border-accent/40 hover:shadow-[0_0_12px_rgba(129,140,248,0.06)]"
+            onClick$={() => {
+              const url = window.location.href;
+              navigator.clipboard.writeText(url).then(() => {
+                copied.value = true;
+                setTimeout(() => (copied.value = false), 2000);
+              });
+            }}
+          >
+            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
+              <polyline points="16 6 12 2 8 6" />
+              <line x1="12" y1="2" x2="12" y2="15" />
+            </svg>
+            {copied.value ? "Copied!" : "Share"}
+          </button>
           <button
             class="inline-flex items-center gap-1.5 rounded-lg border border-border bg-elevated px-3 py-1.5 text-sm text-text transition-all hover:border-accent/40 hover:shadow-[0_0_12px_rgba(129,140,248,0.06)] disabled:opacity-50"
             disabled={refreshing.value}
