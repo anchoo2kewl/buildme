@@ -38,7 +38,7 @@ export default component$(() => {
       fetchDrift().catch(() => null),
       fetchDashboard().catch(() => null),
       fetchVersionOverview().catch(() => null),
-      fetchIncidents(20).catch(() => []),
+      fetchIncidents(50).catch(() => []),
       fetchGroups().catch(() => []),
     ]);
     drift.value = driftData;
@@ -851,102 +851,147 @@ const ProjectCard = component$<ProjectCardProps>(
 
 // ─── Incidents Banner ─────────────────────────────
 
+const BANNER_PREVIEW = 5;
+const BANNER_PAGE_SIZE = 10;
+
 interface IncidentsBannerProps {
   incidents: ResourceIncident[];
 }
 
 const IncidentsBanner = component$<IncidentsBannerProps>(({ incidents }) => {
   const collapsed = useSignal(false);
+  const expanded = useSignal(false); // preview (5) vs paginated
+  const page = useSignal(1);
 
   if (incidents.length === 0) return null;
 
-  const openIncidents = incidents.filter((i) => !i.resolved_at);
+  const openIncidents = incidents.filter((i) => !i.resolved_at && !i.ignored);
   const resolvedIncidents = incidents.filter((i) => !!i.resolved_at);
   const hasOpen = openIncidents.length > 0;
 
+  const totalPages = Math.ceil(incidents.length / BANNER_PAGE_SIZE);
+  const pageIncidents = incidents.slice(
+    (page.value - 1) * BANNER_PAGE_SIZE,
+    page.value * BANNER_PAGE_SIZE,
+  );
+  const previewIncidents = incidents.slice(0, BANNER_PREVIEW);
+  const displayIncidents = expanded.value ? pageIncidents : previewIncidents;
+  const remaining = incidents.length - BANNER_PREVIEW;
+
   return (
     <div class={`mb-4 rounded-xl border ${hasOpen ? "border-failure/25 bg-gradient-to-r from-failure/10 to-failure/[0.03]" : "border-success/25 bg-gradient-to-r from-success/10 to-success/[0.03]"}`}>
+      {/* Header row */}
       <button
-        class="flex w-full items-center justify-between px-4 py-2 text-left"
-        onClick$={() => {
-          collapsed.value = !collapsed.value;
-        }}
+        class="flex w-full items-center justify-between px-4 py-2.5 text-left"
+        onClick$={() => { collapsed.value = !collapsed.value; }}
       >
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2.5">
           {hasOpen ? (
             <>
-              <span class="inline-block h-2 w-2 animate-pulse rounded-full bg-failure bm-dot-failure" />
-              <span class="text-sm font-medium text-failure">
-                {openIncidents.length} Open Incident{openIncidents.length > 1 ? "s" : ""}
+              <span class="inline-block h-2 w-2 animate-pulse rounded-full bg-failure" />
+              <span class="text-sm font-semibold text-failure">
+                {openIncidents.length} Open Incident{openIncidents.length !== 1 ? "s" : ""}
               </span>
             </>
           ) : (
             <>
-              <span class="inline-block h-2 w-2 rounded-full bg-success bm-dot-success" />
-              <span class="text-sm font-medium text-success">
-                {resolvedIncidents.length} Resolved Incident{resolvedIncidents.length > 1 ? "s" : ""}
+              <span class="inline-block h-2 w-2 rounded-full bg-success" />
+              <span class="text-sm font-semibold text-success">
+                {resolvedIncidents.length} Resolved
               </span>
             </>
           )}
           {hasOpen && resolvedIncidents.length > 0 && (
-            <span class="text-xs text-muted">
-              + {resolvedIncidents.length} resolved
-            </span>
+            <span class="text-xs text-muted">+ {resolvedIncidents.length} resolved</span>
           )}
+          <span class="text-xs text-muted">· {incidents.length} total</span>
         </div>
         <svg
           class="h-4 w-4 text-muted transition-transform"
-          style={{
-            transform: collapsed.value ? "rotate(0)" : "rotate(180deg)",
-          }}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
+          style={{ transform: collapsed.value ? "rotate(0deg)" : "rotate(180deg)" }}
+          viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round"
         >
           <polyline points="6 9 12 15 18 9" />
         </svg>
       </button>
 
       {!collapsed.value && (
-        <div class={`border-t ${hasOpen ? "border-failure/20" : "border-success/20"} px-4 py-2`}>
-          <div class="space-y-1.5">
-            {incidents.map((inc) => {
+        <div class={`border-t ${hasOpen ? "border-failure/20" : "border-success/20"}`}>
+          {/* Incident rows */}
+          <div class="divide-y divide-border/30 px-4 py-1">
+            {displayIncidents.map((inc) => {
               const isResolved = !!inc.resolved_at;
               return (
                 <div
                   key={inc.id}
-                  class={`flex items-center gap-3 text-xs ${isResolved ? "opacity-70" : ""}`}
+                  class={`flex items-center gap-3 py-2 text-xs ${isResolved ? "opacity-60" : ""}`}
                 >
                   <span class={`inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full ${isResolved ? "bg-success" : "bg-failure animate-pulse"}`} />
-                  <span class="font-medium text-text">
-                    {inc.project_name}
-                  </span>
-                  <span class="rounded bg-border/50 px-1.5 py-0.5 text-[10px] font-medium uppercase text-muted">
+                  <span class="font-medium text-text truncate max-w-[140px]">{inc.project_name}</span>
+                  <span class="rounded bg-border/50 px-1.5 py-0.5 text-[10px] font-medium uppercase text-muted shrink-0">
                     {inc.env}
                   </span>
-                  <span class="text-muted">{inc.metric}</span>
-                  <span class={`font-mono ${isResolved ? "text-muted" : "text-failure"}`}>
-                    {inc.value.toFixed(1)}
-                  </span>
-                  <span class="text-muted">
-                    / {inc.threshold.toFixed(0)}
-                  </span>
+                  <span class="text-muted truncate">{inc.message}</span>
                   {isResolved ? (
-                    <span class="ml-auto flex items-center gap-1.5 text-success">
+                    <span class="ml-auto flex items-center gap-1 shrink-0 text-success">
                       <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-                      Resolved {timeAgo(inc.resolved_at!)}
+                      {timeAgo(inc.resolved_at!)}
                     </span>
                   ) : (
-                    <span class="ml-auto text-muted">
-                      {timeAgo(inc.created_at)}
-                    </span>
+                    <span class="ml-auto shrink-0 text-muted">{timeAgo(inc.created_at)}</span>
                   )}
                 </div>
               );
             })}
+          </div>
+
+          {/* Footer: expand / pagination / collapse */}
+          <div class={`flex items-center justify-between border-t px-4 py-2 ${hasOpen ? "border-failure/15" : "border-success/15"}`}>
+            {!expanded.value ? (
+              <>
+                <a href="/dashboard/incidents" class="text-xs text-accent hover:underline">
+                  View all incidents →
+                </a>
+                {remaining > 0 && (
+                  <button
+                    class="text-xs text-muted hover:text-text transition-colors"
+                    onClick$={() => { expanded.value = true; page.value = 1; }}
+                  >
+                    Show {remaining} more
+                  </button>
+                )}
+              </>
+            ) : (
+              <>
+                {/* Pagination controls */}
+                <div class="flex items-center gap-2">
+                  <button
+                    class="flex h-6 w-6 items-center justify-center rounded border border-border/60 text-muted transition-colors hover:border-border-hover hover:text-text disabled:pointer-events-none disabled:opacity-30"
+                    disabled={page.value === 1}
+                    onClick$={() => { if (page.value > 1) page.value--; }}
+                  >
+                    <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+                  </button>
+                  <span class="text-xs text-muted">
+                    {page.value} / {totalPages}
+                  </span>
+                  <button
+                    class="flex h-6 w-6 items-center justify-center rounded border border-border/60 text-muted transition-colors hover:border-border-hover hover:text-text disabled:pointer-events-none disabled:opacity-30"
+                    disabled={page.value >= totalPages}
+                    onClick$={() => { if (page.value < totalPages) page.value++; }}
+                  >
+                    <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
+                  </button>
+                </div>
+                <button
+                  class="text-xs text-muted hover:text-text transition-colors"
+                  onClick$={() => { expanded.value = false; page.value = 1; }}
+                >
+                  Show less
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
