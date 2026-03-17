@@ -48,6 +48,8 @@ export default component$(() => {
   const envFilter = useSignal<EnvFilter>("all");
   const searchQuery = useSignal("");
   const visibleCount = useSignal(PAGE_SIZE);
+  // ref that gets set when sentinel mounts — triggers observer setup
+  const sentinelRef = useSignal<Element>();
 
   const doRefresh = $(async () => {
     const data = await fetchAllIncidents(500).catch(() => []);
@@ -62,26 +64,11 @@ export default component$(() => {
     visibleCount.value = PAGE_SIZE;
   });
 
+  // Data fetch + WS auto-refresh
   useVisibleTask$(async ({ cleanup }) => {
     await doRefresh();
     loading.value = false;
 
-    // Intersection observer for infinite scroll
-    const sentinel = document.getElementById("incidents-sentinel");
-    if (sentinel) {
-      const observer = new IntersectionObserver(
-        (entries) => {
-          if (entries[0].isIntersecting) {
-            visibleCount.value += PAGE_SIZE;
-          }
-        },
-        { rootMargin: "200px" },
-      );
-      observer.observe(sentinel);
-      cleanup(() => observer.disconnect());
-    }
-
-    // Auto-refresh on WS events
     const token = localStorage.getItem("buildme_token");
     if (token) {
       const { BuildMeWS } = await import("~/lib/ws");
@@ -96,6 +83,29 @@ export default component$(() => {
     }
   });
 
+  // Infinite scroll: set up IntersectionObserver once the sentinel element mounts.
+  // Using a ref signal means this task fires AFTER Qwik renders the sentinel into
+  // the DOM, avoiding the race condition of getElementById after state change.
+  useVisibleTask$(({ track, cleanup }) => {
+    const el = track(() => sentinelRef.value);
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          // Load next batch. Guard against exceeding total is handled by hasMore in JSX.
+          visibleCount.value += PAGE_SIZE;
+        }
+      },
+      // Large rootMargin: starts loading before the sentinel fully enters view,
+      // and also fires on initial observe when element is already in viewport.
+      { rootMargin: "400px" },
+    );
+
+    observer.observe(el);
+    cleanup(() => observer.disconnect());
+  });
+
   const filtered = useComputed$(() => {
     const q = searchQuery.value.toLowerCase().trim();
     return allIncidents.value.filter((inc) => {
@@ -104,7 +114,8 @@ export default component$(() => {
       if (statusFilter.value === "ignored" && !inc.ignored) return false;
       if (envFilter.value !== "all" && inc.env !== envFilter.value) return false;
       if (q) {
-        const hay = [inc.project_name ?? "", inc.message, metricLabel(inc.metric), inc.env].join(" ").toLowerCase();
+        const hay = [inc.project_name ?? "", inc.message, metricLabel(inc.metric), inc.env]
+          .join(" ").toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -187,14 +198,14 @@ export default component$(() => {
           </button>
         ))}
 
-        {filtered.value.length > 0 && (
+        {!loading.value && filtered.value.length > 0 && (
           <span class="ml-auto text-xs text-muted">
             {filtered.value.length} incident{filtered.value.length !== 1 ? "s" : ""}
           </span>
         )}
       </div>
 
-      {/* Loading */}
+      {/* Loading initial */}
       {loading.value ? (
         <div class="flex items-center justify-center p-12">
           <div class="h-8 w-8 animate-spin rounded-full border-2 border-accent border-t-transparent" />
@@ -286,17 +297,18 @@ export default component$(() => {
             })}
           </div>
 
-          {/* Infinite scroll sentinel + load indicator */}
-          <div id="incidents-sentinel" class="py-4 flex justify-center">
-            {hasMore.value ? (
-              <div class="flex items-center gap-2 text-xs text-muted">
-                <div class="h-4 w-4 animate-spin rounded-full border-2 border-accent/40 border-t-accent" />
-                Loading more…
-              </div>
-            ) : filtered.value.length > PAGE_SIZE ? (
-              <p class="text-xs text-muted">All {filtered.value.length} incidents loaded</p>
-            ) : null}
-          </div>
+          {/* Sentinel: observed for infinite scroll. Only rendered when there are more items.
+              When hasMore is false (all loaded), show a "done" message instead. */}
+          {hasMore.value ? (
+            <div ref={sentinelRef} class="flex items-center justify-center gap-2 py-6 text-xs text-muted">
+              <div class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-accent/40 border-t-accent" />
+              Loading more…
+            </div>
+          ) : filtered.value.length > PAGE_SIZE ? (
+            <p class="py-6 text-center text-xs text-muted">
+              All {filtered.value.length} incidents loaded
+            </p>
+          ) : null}
         </>
       )}
     </div>
