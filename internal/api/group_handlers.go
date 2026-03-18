@@ -16,7 +16,12 @@ type GroupHandler struct {
 }
 
 func (h *GroupHandler) List(w http.ResponseWriter, r *http.Request) {
-	groups, err := h.store.ListProjectGroups(r.Context())
+	user := UserFromCtx(r.Context())
+	userID := user.ID
+	if user.IsSuperAdmin {
+		userID = 0
+	}
+	groups, err := h.store.ListProjectGroups(r.Context(), userID)
 	if err != nil {
 		jsonError(w, "failed to list groups", http.StatusInternalServerError)
 		return
@@ -53,6 +58,11 @@ func (h *GroupHandler) Create(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "failed to create group", http.StatusInternalServerError)
 		return
 	}
+	// Auto-add creator as owner so they can see and manage their group
+	user := UserFromCtx(r.Context())
+	h.store.AddGroupMember(r.Context(), &models.GroupMember{
+		GroupID: g.ID, UserID: user.ID, Role: models.RoleOwner,
+	})
 	jsonResp(w, http.StatusCreated, g)
 }
 
@@ -71,6 +81,13 @@ func (h *GroupHandler) Get(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "group not found", http.StatusNotFound)
 		return
 	}
+	user := UserFromCtx(r.Context())
+	if !user.IsSuperAdmin {
+		if m, _ := h.store.GetGroupMember(r.Context(), id, user.ID); m == nil {
+			jsonError(w, "group not found", http.StatusNotFound)
+			return
+		}
+	}
 	jsonResp(w, http.StatusOK, g)
 }
 
@@ -85,6 +102,13 @@ func (h *GroupHandler) GetBySlug(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "group not found", http.StatusNotFound)
 		return
 	}
+	user := UserFromCtx(r.Context())
+	if !user.IsSuperAdmin {
+		if m, _ := h.store.GetGroupMember(r.Context(), g.ID, user.ID); m == nil {
+			jsonError(w, "group not found", http.StatusNotFound)
+			return
+		}
+	}
 	jsonResp(w, http.StatusOK, g)
 }
 
@@ -98,6 +122,14 @@ func (h *GroupHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if err != nil || g == nil {
 		jsonError(w, "group not found", http.StatusNotFound)
 		return
+	}
+	user := UserFromCtx(r.Context())
+	if !user.IsSuperAdmin {
+		role, _ := h.store.GetUserGroupRole(r.Context(), user.ID, id)
+		if role != models.RoleAdmin && role != models.RoleOwner {
+			jsonError(w, "group not found", http.StatusNotFound)
+			return
+		}
 	}
 	var req struct {
 		Name      *string `json:"name"`
@@ -135,6 +167,14 @@ func (h *GroupHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		jsonError(w, "invalid group id", http.StatusBadRequest)
 		return
+	}
+	user := UserFromCtx(r.Context())
+	if !user.IsSuperAdmin {
+		role, _ := h.store.GetUserGroupRole(r.Context(), user.ID, id)
+		if role != models.RoleOwner {
+			jsonError(w, "group not found", http.StatusNotFound)
+			return
+		}
 	}
 	if err := h.store.DeleteProjectGroup(r.Context(), id); err != nil {
 		jsonError(w, "failed to delete group", http.StatusInternalServerError)

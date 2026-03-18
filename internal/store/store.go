@@ -144,7 +144,7 @@ type Store interface {
 	GetProjectGroupBySlug(ctx context.Context, slug string) (*models.ProjectGroup, error)
 	UpdateProjectGroup(ctx context.Context, g *models.ProjectGroup) error
 	DeleteProjectGroup(ctx context.Context, id int64) error
-	ListProjectGroups(ctx context.Context) ([]models.ProjectGroup, error)
+	ListProjectGroups(ctx context.Context, userID int64) ([]models.ProjectGroup, error)
 	SetProjectGroup(ctx context.Context, projectID int64, groupID *int64) error
 
 	// Group Members

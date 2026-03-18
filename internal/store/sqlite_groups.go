@@ -57,9 +57,19 @@ func (s *SQLiteStore) DeleteProjectGroup(ctx context.Context, id int64) error {
 	return err
 }
 
-func (s *SQLiteStore) ListProjectGroups(ctx context.Context) ([]models.ProjectGroup, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, slug, visible, sort_order, created_at, updated_at FROM project_groups ORDER BY sort_order, name`)
+func (s *SQLiteStore) ListProjectGroups(ctx context.Context, userID int64) ([]models.ProjectGroup, error) {
+	var rows *sql.Rows
+	var err error
+	if userID == 0 {
+		// super admin sees all
+		rows, err = s.db.QueryContext(ctx,
+			`SELECT id, name, slug, visible, sort_order, created_at, updated_at FROM project_groups ORDER BY sort_order, name`)
+	} else {
+		rows, err = s.db.QueryContext(ctx,
+			`SELECT id, name, slug, visible, sort_order, created_at, updated_at FROM project_groups
+			 WHERE id IN (SELECT group_id FROM group_members WHERE user_id = ?)
+			 ORDER BY sort_order, name`, userID)
+	}
 	if err != nil {
 		return nil, err
 	}

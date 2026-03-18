@@ -39,6 +39,7 @@ export default component$(() => {
   useVisibleTask$(async () => {
     const token = localStorage.getItem("buildme_token");
     if (!token) {
+      auth.isLoading = false;
       nav("/auth/login");
       return;
     }
@@ -46,18 +47,18 @@ export default component$(() => {
     try {
       const user = await get<User>("/me");
       auth.user = user;
+      auth.isLoading = false;
+
+      const ws = new BuildMeWS(token);
+      ws.connect();
+      wsState.ws = ws as any;
+
+      return () => ws.disconnect();
     } catch {
+      auth.isLoading = false;
       localStorage.removeItem("buildme_token");
       nav("/auth/login");
-      return;
     }
-    auth.isLoading = false;
-
-    const ws = new BuildMeWS(token);
-    ws.connect();
-    wsState.ws = ws as any;
-
-    return () => ws.disconnect();
   });
 
   return (
