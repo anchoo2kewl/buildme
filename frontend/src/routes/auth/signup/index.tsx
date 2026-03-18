@@ -12,14 +12,19 @@ export default component$(() => {
   const error = useSignal("");
   const loading = useSignal(false);
   const codeFromUrl = useSignal(false);
+  const codeInputRef = useSignal<HTMLInputElement>();
 
   useVisibleTask$(() => {
-    // loc.url in SSG mode does not include query params from the live browser URL.
-    // Read window.location.search directly to get the actual URL params.
+    // loc.url in Qwik City SSG does not carry query params — read the live browser URL.
     const code = new URLSearchParams(window.location.search).get("code");
     if (code) {
       inviteCode.value = code;
       codeFromUrl.value = true;
+      // Directly set the DOM property (not attribute) so the browser shows
+      // the value immediately, regardless of Qwik's attribute-vs-property handling.
+      if (codeInputRef.value) {
+        codeInputRef.value.value = code;
+      }
     }
   });
 
@@ -67,8 +72,10 @@ export default component$(() => {
               Invite Code
             </label>
             <input
+              ref={codeInputRef}
               type="text"
-              bind:value={inviteCode}
+              value={inviteCode.value}
+              onInput$={(e) => { inviteCode.value = (e.target as HTMLInputElement).value; }}
               required
               readOnly={codeFromUrl.value}
               class={`mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-text placeholder:text-muted focus:border-accent focus:outline-none ${codeFromUrl.value ? "opacity-60" : ""}`}
