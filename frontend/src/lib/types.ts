@@ -27,6 +27,7 @@ export interface User {
 export interface Invite {
   id: number;
   code: string;
+  email?: string;
   created_by: number;
   used_by?: number;
   expires_at: string;

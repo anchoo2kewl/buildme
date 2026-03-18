@@ -153,18 +153,77 @@ func SendInviteEmail(cfg *SMTPConfig, toEmail, inviteCode, baseURL string) error
 		return fmt.Errorf("email not configured")
 	}
 
-	registerURL := baseURL + "/register?code=" + inviteCode
+	signupURL := baseURL + "/auth/signup?code=" + inviteCode
 	subject := "You've been invited to BuildMe"
 	body := fmt.Sprintf(`<!DOCTYPE html>
-<html><body style="font-family:-apple-system,sans-serif;background:#0f0f1a;color:#e2e2f0;padding:40px">
-<div style="max-width:500px;margin:0 auto;background:#1a1a2e;border:1px solid #3a3a5c;border-radius:12px;padding:40px">
-<h1 style="color:#6366f1;margin:0 0 16px">BuildMe</h1>
-<p>You've been invited to join BuildMe — a CI/CD build monitoring dashboard.</p>
-<p>Use this invite code to create your account:</p>
-<div style="background:#0f0f1a;border:1px solid #3a3a5c;border-radius:8px;padding:12px 20px;font-family:monospace;font-size:18px;margin:20px 0;text-align:center">%s</div>
-<p><a href="%s" style="display:inline-block;background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Create Account</a></p>
-<p style="color:#8888a8;font-size:14px;margin-top:24px">This invite expires in 7 days.</p>
-</div></body></html>`, inviteCode, registerURL)
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>You've been invited to BuildMe</title></head>
+<body style="margin:0;padding:0;background-color:#0a0c12;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+  <table width="100%%" cellpadding="0" cellspacing="0" style="background-color:#0a0c12;padding:40px 16px">
+    <tr><td align="center">
+      <table width="100%%" cellpadding="0" cellspacing="0" style="max-width:520px">
+
+        <!-- Header -->
+        <tr><td style="background:linear-gradient(135deg,#1a1c2e 0%%,#141624 100%%);border-radius:12px 12px 0 0;border:1px solid #2a2d45;border-bottom:none;padding:32px 40px 28px">
+          <table width="100%%" cellpadding="0" cellspacing="0">
+            <tr>
+              <td>
+                <div style="display:inline-flex;align-items:center;gap:10px">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16m-7 6h7M4 18h4"/>
+                  </svg>
+                  <span style="font-size:22px;font-weight:700;color:#6366f1;letter-spacing:-0.5px">BuildMe</span>
+                </div>
+              </td>
+            </tr>
+          </table>
+        </td></tr>
+
+        <!-- Body -->
+        <tr><td style="background:#10121e;border:1px solid #2a2d45;border-top:none;border-bottom:none;padding:36px 40px">
+
+          <p style="margin:0 0 8px;font-size:24px;font-weight:700;color:#e8e9f5;line-height:1.3">You've been invited!</p>
+          <p style="margin:0 0 28px;font-size:15px;color:#8082a0;line-height:1.6">
+            Someone has invited you to join <strong style="color:#c4c6e0">BuildMe</strong> — a CI/CD build monitoring dashboard. Use the invite code below to create your account.
+          </p>
+
+          <!-- Invite code box -->
+          <table width="100%%" cellpadding="0" cellspacing="0" style="margin-bottom:28px">
+            <tr><td style="background:#0a0c12;border:1px solid #2a2d45;border-radius:10px;padding:20px 24px;text-align:center">
+              <p style="margin:0 0 6px;font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#5c5e7a">Your Invite Code</p>
+              <p style="margin:0;font-family:'Courier New',Courier,monospace;font-size:22px;font-weight:700;letter-spacing:0.12em;color:#6366f1">%s</p>
+            </td></tr>
+          </table>
+
+          <!-- CTA button -->
+          <table width="100%%" cellpadding="0" cellspacing="0" style="margin-bottom:28px">
+            <tr><td align="center">
+              <a href="%s" style="display:inline-block;background:linear-gradient(135deg,#6366f1,#818cf8);color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;padding:14px 36px;border-radius:9px;letter-spacing:0.01em;box-shadow:0 4px 20px rgba(99,102,241,0.35)">
+                Create Your Account →
+              </a>
+            </td></tr>
+          </table>
+
+          <p style="margin:0;font-size:13px;color:#5c5e7a;line-height:1.6;text-align:center">
+            The invite code is pre-filled when you click the button above.<br>
+            This invite <strong style="color:#7577a0">expires in 7 days</strong>.
+          </p>
+
+        </td></tr>
+
+        <!-- Footer -->
+        <tr><td style="background:#0d0f1a;border:1px solid #2a2d45;border-top:none;border-radius:0 0 12px 12px;padding:20px 40px">
+          <p style="margin:0;font-size:12px;color:#3d3f58;text-align:center;line-height:1.6">
+            If you weren't expecting this invite, you can safely ignore this email.<br>
+            &copy; BuildMe · <a href="%s" style="color:#5557a0;text-decoration:none">build.biswas.me</a>
+          </p>
+        </td></tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`, inviteCode, signupURL, baseURL)
 
 	return emailSend(cfg, []string{toEmail}, subject, body)
 }

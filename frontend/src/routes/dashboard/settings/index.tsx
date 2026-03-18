@@ -22,6 +22,8 @@ export default component$(() => {
   const inviteLoading = useSignal(false);
   const inviteError = useSignal("");
   const copied = useSignal<string | null>(null);
+  const inviteEmail = useSignal("");
+  const inviteSent = useSignal<string | null>(null);
 
   // API Keys state
   const apiKeys = useSignal<APIKey[]>([]);
@@ -169,35 +171,78 @@ export default component$(() => {
       </section>
 
       <section class="mb-8 rounded-lg border border-border bg-elevated p-6">
-        <h2 class="mb-4 text-lg font-semibold text-text">Invites</h2>
         <div class="mb-4 flex items-center justify-between">
-          <span class="text-sm text-muted">
-            Remaining:{" "}
-            <span class="font-medium text-text">
-              {auth.user?.invites_remaining === -1
-                ? "Unlimited"
-                : auth.user?.invites_remaining ?? 0}
-            </span>
+          <h2 class="text-lg font-semibold text-text">Invite Someone</h2>
+          <span class="text-xs text-muted">
+            {auth.user?.invites_remaining === -1
+              ? "Unlimited invites"
+              : `${auth.user?.invites_remaining ?? 0} remaining`}
           </span>
-          <button
-            disabled={inviteLoading.value || (auth.user?.invites_remaining !== -1 && (auth.user?.invites_remaining ?? 0) <= 0)}
-            onClick$={async () => {
-              inviteLoading.value = true;
-              inviteError.value = "";
-              try {
-                const inv = await post<Invite>("/invites", {});
-                invites.value = [inv, ...invites.value];
-              } catch (e: any) {
-                inviteError.value = e.message;
-              } finally {
-                inviteLoading.value = false;
-              }
-            }}
-            class="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
-          >
-            {inviteLoading.value ? "Creating..." : "Create Invite"}
-          </button>
         </div>
+
+        {/* Email invite form */}
+        <form
+          preventdefault:submit
+          onSubmit$={async () => {
+            if (!inviteEmail.value.trim()) return;
+            inviteLoading.value = true;
+            inviteError.value = "";
+            inviteSent.value = null;
+            try {
+              const inv = await post<Invite>("/invites", { email: inviteEmail.value.trim() });
+              invites.value = [inv, ...invites.value];
+              inviteSent.value = inviteEmail.value.trim();
+              inviteEmail.value = "";
+            } catch (e: any) {
+              inviteError.value = e.message;
+            } finally {
+              inviteLoading.value = false;
+            }
+          }}
+          class="mb-4"
+        >
+          <div class="flex gap-2">
+            <input
+              type="email"
+              bind:value={inviteEmail}
+              placeholder="colleague@example.com"
+              required
+              disabled={inviteLoading.value || (auth.user?.invites_remaining !== -1 && (auth.user?.invites_remaining ?? 0) <= 0)}
+              class="flex-1 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted focus:border-accent/60 focus:outline-none focus:ring-1 focus:ring-accent/30 disabled:opacity-50"
+            />
+            <button
+              type="submit"
+              disabled={inviteLoading.value || !inviteEmail.value.trim() || (auth.user?.invites_remaining !== -1 && (auth.user?.invites_remaining ?? 0) <= 0)}
+              class="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/90 disabled:opacity-50"
+            >
+              {inviteLoading.value ? (
+                <>
+                  <span class="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  Sending…
+                </>
+              ) : (
+                <>
+                  <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="m22 2-7 20-4-9-9-4 20-7z" /><path d="M22 2 11 13" />
+                  </svg>
+                  Send Invite
+                </>
+              )}
+            </button>
+          </div>
+          <p class="mt-1.5 text-xs text-muted">
+            A branded email with a pre-filled signup link will be sent to this address.
+          </p>
+        </form>
+
+        {inviteSent.value && (
+          <div class="mb-3 flex items-center gap-2 rounded-lg border border-success/25 bg-success/10 px-3 py-2.5 text-sm text-success">
+            <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><path d="m9 11 3 3L22 4" />
+            </svg>
+            Invite sent to <strong>{inviteSent.value}</strong>
+          </div>
+        )}
 
         {inviteError.value && (
           <div class="mb-3 rounded bg-failure/20 px-3 py-2 text-sm text-failure">
@@ -240,9 +285,17 @@ export default component$(() => {
                         {status}
                       </span>
                     </div>
-                    <span class="text-xs text-muted">
-                      {new Date(inv.created_at).toLocaleDateString()}
-                    </span>
+                    <div class="flex items-center gap-2 text-xs text-muted">
+                      {inv.email && (
+                        <span class="flex items-center gap-1">
+                          <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect width="20" height="16" x="2" y="4" rx="2" /><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+                          </svg>
+                          {inv.email}
+                        </span>
+                      )}
+                      <span>{new Date(inv.created_at).toLocaleDateString()}</span>
+                    </div>
                   </div>
                   {status === "active" && (
                     <button
