@@ -427,10 +427,10 @@ export default component$(() => {
             <label class="mb-1 block text-sm font-medium text-muted">Endpoint</label>
             <div class="flex items-center gap-2">
               <code class="flex-1 rounded-lg border border-border bg-surface px-3 py-2 font-mono text-sm text-text">
-                https://build.biswas.me/api/mcp
+                https://mcp.build.biswas.me
               </code>
               <button
-                onClick$={() => copyToClipboard("https://build.biswas.me/api/mcp", "endpoint")}
+                onClick$={() => copyToClipboard("https://mcp.build.biswas.me", "endpoint")}
                 class="rounded px-2 py-1 text-xs text-accent hover:bg-accent/10"
               >
                 {copiedMcp.value === "endpoint" ? "Copied!" : "Copy"}
@@ -464,7 +464,7 @@ export default component$(() => {
       "command": "npx",
       "args": [
         "-y", "@anthropic-ai/mcp-remote",
-        "https://build.biswas.me/api/mcp",
+        "https://mcp.build.biswas.me",
         "--header",
         "Authorization:ApiKey YOUR_API_KEY"
       ]
@@ -479,7 +479,7 @@ export default component$(() => {
                       command: "npx",
                       args: [
                         "-y", "@anthropic-ai/mcp-remote",
-                        "https://build.biswas.me/api/mcp",
+                        "https://mcp.build.biswas.me",
                         "--header",
                         "Authorization:ApiKey YOUR_API_KEY",
                       ],
