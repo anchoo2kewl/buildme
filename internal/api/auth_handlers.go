@@ -238,6 +238,27 @@ func (h *AuthHandler) ListInvites(w http.ResponseWriter, r *http.Request) {
 	jsonResp(w, http.StatusOK, invites)
 }
 
+// InviteLookup returns the email associated with an invite code (public endpoint).
+// Used by the signup page to pre-populate the email field.
+// GET /api/auth/invite-lookup?code=xxx
+func (h *AuthHandler) InviteLookup(w http.ResponseWriter, r *http.Request) {
+	code := r.URL.Query().Get("code")
+	if code == "" {
+		jsonError(w, "code is required", http.StatusBadRequest)
+		return
+	}
+	inv, err := h.store.GetInviteByCode(r.Context(), code)
+	if err != nil || inv == nil {
+		jsonError(w, "invalid invite code", http.StatusNotFound)
+		return
+	}
+	// Return only the email (and validity) — nothing else is needed.
+	jsonResp(w, http.StatusOK, map[string]any{
+		"email": inv.Email,
+		"valid": inv.UsedAt == nil && inv.ExpiresAt.After(time.Now()),
+	})
+}
+
 func (h *AuthHandler) GitHubRedirect(w http.ResponseWriter, r *http.Request) {
 	if h.cfg.GitHubClientID == "" {
 		jsonError(w, "GitHub OAuth not configured", http.StatusNotImplemented)

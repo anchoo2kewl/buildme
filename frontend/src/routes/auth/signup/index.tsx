@@ -14,17 +14,30 @@ export default component$(() => {
   const codeFromUrl = useSignal(false);
   const codeInputRef = useSignal<HTMLInputElement>();
 
-  useVisibleTask$(() => {
+  useVisibleTask$(async () => {
     // loc.url in Qwik City SSG does not carry query params — read the live browser URL.
     const code = new URLSearchParams(window.location.search).get("code");
-    if (code) {
-      inviteCode.value = code;
-      codeFromUrl.value = true;
-      // Directly set the DOM property (not attribute) so the browser shows
-      // the value immediately, regardless of Qwik's attribute-vs-property handling.
-      if (codeInputRef.value) {
-        codeInputRef.value.value = code;
+    if (!code) return;
+
+    inviteCode.value = code;
+    codeFromUrl.value = true;
+    // Directly set the DOM property (not just the attribute) so the browser
+    // shows the value immediately regardless of Qwik's attribute handling.
+    if (codeInputRef.value) {
+      codeInputRef.value.value = code;
+    }
+
+    // Look up the invite to pre-populate the email field.
+    try {
+      const res = await fetch(`/api/auth/invite-lookup?code=${encodeURIComponent(code)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.email && !email.value) {
+          email.value = data.email;
+        }
       }
+    } catch {
+      // Non-fatal — email just won't be pre-filled
     }
   });
 

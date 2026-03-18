@@ -61,6 +61,7 @@ func NewRouter(s store.Store, cfg *config.Config, hub *ws.Hub, registry *provide
 	r.Post("/api/auth/login", authH.Login)
 	r.Get("/api/auth/github", authH.GitHubRedirect)
 	r.Get("/api/auth/github/callback", authH.GitHubCallback)
+	r.Get("/api/auth/invite-lookup", authH.InviteLookup)
 
 	// Webhook ingestion (public, verified by signature)
 	r.Post("/api/webhooks/ingest/{providerType}", func(w http.ResponseWriter, r *http.Request) {
