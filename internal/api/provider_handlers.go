@@ -17,7 +17,12 @@ type ProviderHandler struct {
 }
 
 func (h *ProviderHandler) ListAll(w http.ResponseWriter, r *http.Request) {
-	providers, err := h.store.ListAllCIProviders(r.Context())
+	user := UserFromCtx(r.Context())
+	var userID int64
+	if user != nil && !user.IsSuperAdmin {
+		userID = user.ID
+	}
+	providers, err := h.store.ListAllCIProviders(r.Context(), userID)
 	if err != nil {
 		jsonError(w, "failed to list runners", http.StatusInternalServerError)
 		return

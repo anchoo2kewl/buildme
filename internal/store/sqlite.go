@@ -349,14 +349,33 @@ func (s *SQLiteStore) ListAllProvidersByType(ctx context.Context, providerType m
 	return providers, rows.Err()
 }
 
-func (s *SQLiteStore) ListAllCIProviders(ctx context.Context) ([]models.CIProviderWithProject, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT cp.id, cp.project_id, cp.provider_type, cp.display_name, cp.repo_owner, cp.repo_name,
+func (s *SQLiteStore) ListAllCIProviders(ctx context.Context, userID int64) ([]models.CIProviderWithProject, error) {
+	var query string
+	var args []any
+	if userID > 0 {
+		query = `SELECT cp.id, cp.project_id, cp.provider_type, cp.display_name, cp.repo_owner, cp.repo_name,
 		        cp.poll_interval_s, cp.next_poll_at, cp.enabled, cp.created_at, cp.updated_at,
 		        p.name, p.slug
 		 FROM ci_providers cp
 		 JOIN projects p ON p.id = cp.project_id
-		 ORDER BY cp.provider_type, cp.display_name`)
+		 WHERE cp.project_id IN (
+		   SELECT project_id FROM project_members WHERE user_id = ?
+		   UNION
+		   SELECT p2.id FROM projects p2
+		     JOIN group_members gm ON gm.group_id = p2.group_id
+		     WHERE gm.user_id = ?
+		 )
+		 ORDER BY cp.provider_type, cp.display_name`
+		args = []any{userID, userID}
+	} else {
+		query = `SELECT cp.id, cp.project_id, cp.provider_type, cp.display_name, cp.repo_owner, cp.repo_name,
+		        cp.poll_interval_s, cp.next_poll_at, cp.enabled, cp.created_at, cp.updated_at,
+		        p.name, p.slug
+		 FROM ci_providers cp
+		 JOIN projects p ON p.id = cp.project_id
+		 ORDER BY cp.provider_type, cp.display_name`
+	}
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

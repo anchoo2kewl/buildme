@@ -404,7 +404,8 @@ type Host struct {
 	LastHeartbeatAt *time.Time `json:"last_heartbeat_at,omitempty"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
-	ProjectIDs      []int64    `json:"project_ids,omitempty"`
+	ProjectIDs      []int64  `json:"project_ids,omitempty"`
+	ProjectNames    []string `json:"project_names,omitempty"`
 }
 
 // HostProject links a host to a project for a specific environment.

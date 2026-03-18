@@ -57,10 +57,12 @@ func (h *HostHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Enrich with project IDs
+	// Enrich with project IDs and names
 	for i := range hosts {
 		ids, _ := h.store.GetHostProjectIDs(r.Context(), hosts[i].ID)
 		hosts[i].ProjectIDs = ids
+		names, _ := h.store.GetHostProjectNames(r.Context(), hosts[i].ID)
+		hosts[i].ProjectNames = names
 	}
 
 	if hosts == nil {
@@ -151,6 +153,8 @@ func (h *HostHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	ids, _ := h.store.GetHostProjectIDs(r.Context(), host.ID)
 	host.ProjectIDs = ids
+	names, _ := h.store.GetHostProjectNames(r.Context(), host.ID)
+	host.ProjectNames = names
 
 	jsonResp(w, http.StatusOK, host)
 }
@@ -213,6 +217,8 @@ func (h *HostHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	ids, _ := h.store.GetHostProjectIDs(r.Context(), host.ID)
 	host.ProjectIDs = ids
+	names, _ := h.store.GetHostProjectNames(r.Context(), host.ID)
+	host.ProjectNames = names
 
 	jsonResp(w, http.StatusOK, host)
 }

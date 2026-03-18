@@ -171,6 +171,26 @@ func (s *SQLiteStore) GetHostProjectIDs(ctx context.Context, hostID int64) ([]in
 	return ids, rows.Err()
 }
 
+func (s *SQLiteStore) GetHostProjectNames(ctx context.Context, hostID int64) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT p.name FROM projects p
+		 JOIN host_projects hp ON hp.project_id = p.id
+		 WHERE hp.host_id = ? ORDER BY p.name`, hostID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var names []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		names = append(names, n)
+	}
+	return names, rows.Err()
+}
+
 func (s *SQLiteStore) GetHostForProjectEnv(ctx context.Context, projectID int64, env string) (*models.Host, error) {
 	return s.scanHost(s.db.QueryRowContext(ctx,
 		`SELECT h.id, h.name, h.hostname, h.api_key_hash, h.enabled, h.cpu_threshold, h.memory_threshold, h.disk_threshold,

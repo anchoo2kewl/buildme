@@ -250,11 +250,19 @@ export default component$(() => {
                         {host.ip_address ? ` / ${host.ip_address}` : ""}
                       </span>
                     </div>
-                    {host.os_info && (
-                      <p class="mt-0.5 truncate text-xs text-muted/70">
-                        {host.os_info}
-                      </p>
-                    )}
+                    <div class="mt-0.5 flex items-center gap-2 flex-wrap">
+                      {host.os_info && (
+                        <span class="truncate text-xs text-muted/70">{host.os_info}</span>
+                      )}
+                      {host.project_names && host.project_names.length > 0 && (
+                        <span class="flex items-center gap-1 text-xs text-accent/70">
+                          <svg class="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
+                          </svg>
+                          {host.project_names.join(", ")}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Gauges */}
@@ -418,6 +426,21 @@ export default component$(() => {
                             </p>
                           </div>
                         </div>
+
+                        {/* Projects */}
+                        {host.project_names && host.project_names.length > 0 && (
+                          <div class="mb-4 flex items-center gap-2 flex-wrap">
+                            <span class="text-xs font-medium uppercase tracking-wider text-muted">Projects</span>
+                            {host.project_names.map((name) => (
+                              <span key={name} class="inline-flex items-center gap-1 rounded-full border border-accent/25 bg-accent/10 px-2.5 py-0.5 text-xs font-medium text-accent">
+                                <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                  <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
+                                </svg>
+                                {name}
+                              </span>
+                            ))}
+                          </div>
+                        )}
 
                         {/* Detail info grid */}
                         <div class="mb-4 grid grid-cols-2 gap-x-6 gap-y-2 rounded-lg border border-border/50 bg-surface/50 px-4 py-3 text-xs sm:grid-cols-4">

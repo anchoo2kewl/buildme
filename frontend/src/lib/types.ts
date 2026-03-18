@@ -295,6 +295,7 @@ export interface Host {
   created_at: string;
   updated_at: string;
   project_ids?: number[];
+  project_names?: string[];
 }
 
 export interface HostMetric {

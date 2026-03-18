@@ -41,7 +41,7 @@ type Store interface {
 	ListCIProviders(ctx context.Context, projectID int64) ([]models.CIProvider, error)
 	GetDueProviders(ctx context.Context, now time.Time) ([]models.CIProvider, error)
 	ListAllProvidersByType(ctx context.Context, providerType models.ProviderType) ([]models.CIProvider, error)
-	ListAllCIProviders(ctx context.Context) ([]models.CIProviderWithProject, error)
+	ListAllCIProviders(ctx context.Context, userID int64) ([]models.CIProviderWithProject, error)
 	UpdateProviderNextPoll(ctx context.Context, id int64, next time.Time) error
 
 	// Builds
@@ -132,6 +132,7 @@ type Store interface {
 	LinkHostProject(ctx context.Context, hostID, projectID int64, env string) error
 	UnlinkHostProject(ctx context.Context, hostID, projectID int64) error
 	GetHostProjectIDs(ctx context.Context, hostID int64) ([]int64, error)
+	GetHostProjectNames(ctx context.Context, hostID int64) ([]string, error)
 	GetHostForProjectEnv(ctx context.Context, projectID int64, env string) (*models.Host, error)
 	ListHostProjectLinks(ctx context.Context, hostID int64) ([]models.HostProject, error)
 	CreateHostMetric(ctx context.Context, m *models.HostMetric) error
