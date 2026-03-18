@@ -63,8 +63,11 @@ export default component$(() => {
       if (saved) collapsedGroups.value = new Set(JSON.parse(saved));
     } catch { /* ignore */ }
 
-    await doRefresh();
-    loading.value = false;
+    try {
+      await doRefresh();
+    } finally {
+      loading.value = false;
+    }
 
     // Listen for version.updated and build events via WebSocket
     const token = typeof window !== "undefined" ? localStorage.getItem("buildme_token") : null;

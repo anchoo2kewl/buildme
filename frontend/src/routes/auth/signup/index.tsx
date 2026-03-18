@@ -1,11 +1,10 @@
 import { component$, useSignal, useVisibleTask$ } from "@builder.io/qwik";
-import { useLocation, useNavigate } from "@builder.io/qwik-city";
+import { useNavigate } from "@builder.io/qwik-city";
 import { post, setToken } from "~/lib/api";
 import type { User } from "~/lib/types";
 
 export default component$(() => {
   const nav = useNavigate();
-  const loc = useLocation();
   const email = useSignal("");
   const password = useSignal("");
   const displayName = useSignal("");
@@ -15,7 +14,9 @@ export default component$(() => {
   const codeFromUrl = useSignal(false);
 
   useVisibleTask$(() => {
-    const code = loc.url.searchParams.get("code");
+    // loc.url in SSG mode does not include query params from the live browser URL.
+    // Read window.location.search directly to get the actual URL params.
+    const code = new URLSearchParams(window.location.search).get("code");
     if (code) {
       inviteCode.value = code;
       codeFromUrl.value = true;
