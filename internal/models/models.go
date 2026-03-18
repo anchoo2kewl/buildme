@@ -293,6 +293,7 @@ type EnvironmentStatus struct {
 	ResponseTimeMS    int64                  `json:"response_time_ms"`
 	BranchHeadSHA     string                 `json:"branch_head_sha,omitempty"`
 	IsDrifted         bool                   `json:"is_drifted"`
+	CommitsBehind     int                    `json:"commits_behind"`
 	CheckedAt         string                 `json:"checked_at"`
 	Error             string                 `json:"error,omitempty"`
 	MCPHealthStatus   int                    `json:"mcp_health_status,omitempty"`

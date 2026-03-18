@@ -68,7 +68,9 @@ export interface DriftEntry {
   deployed_sha: string;
   health: number;
   response_time_ms: number;
+  branch_head_sha: string;
   is_drifted: boolean;
+  commits_behind: number;
 }
 
 interface DriftDashboard {
@@ -81,7 +83,9 @@ interface DriftDashboard {
       deployed_sha: string;
       health_status: number;
       response_time_ms: number;
+      branch_head_sha: string;
       is_drifted: boolean;
+      commits_behind: number;
       [key: string]: unknown;
     }>;
   }>;
@@ -173,7 +177,9 @@ export class BuildMeClient {
             deployed_sha: es.deployed_sha,
             health: es.health_status,
             response_time_ms: es.response_time_ms,
+            branch_head_sha: es.branch_head_sha || "",
             is_drifted: es.is_drifted,
+            commits_behind: es.commits_behind || 0,
           });
         }
       }

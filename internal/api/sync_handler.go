@@ -494,6 +494,23 @@ func (h *SyncHandler) fetchBranchHeadFull(ctx context.Context, owner, repo, bran
 	}, nil
 }
 
+// fetchCommitsBehind uses the GitHub compare API to count how many commits
+// the deployed SHA is behind the branch head.
+func (h *SyncHandler) fetchCommitsBehind(ctx context.Context, owner, repo, baseSHA, headSHA string) int {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/compare/%s...%s", owner, repo, baseSHA, headSHA)
+	data, err := h.ghGet(ctx, url)
+	if err != nil {
+		return 0
+	}
+	var resp struct {
+		AheadBy int `json:"ahead_by"`
+	}
+	if json.Unmarshal(data, &resp) != nil {
+		return 0
+	}
+	return resp.AheadBy
+}
+
 type ghCheckRun struct {
 	ID          int64   `json:"id"`
 	Name        string  `json:"name"`
@@ -947,6 +964,11 @@ func (h *SyncHandler) DriftCheck(w http.ResponseWriter, r *http.Request) {
 					headShort := headResult.SHA[:minLen(len(headResult.SHA), 7)]
 					// Check if deployed SHA matches head, parent, or grandparent (handles merge/promote flows)
 					es.IsDrifted = !shaMatchesHeadOrParent(deployedShort, headShort, headResult.ParentSHAs, headResult.GrandparentSHAs)
+					// Compute commits behind using GitHub compare API
+					if es.IsDrifted && sha != "" {
+						behind := h.fetchCommitsBehind(r.Context(), prov.RepoOwner, prov.RepoName, sha, headResult.SHA)
+						es.CommitsBehind = behind
+					}
 				}
 			}
 

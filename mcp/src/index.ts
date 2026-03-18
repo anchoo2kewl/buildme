@@ -93,6 +93,7 @@ function minimizeDashboardEntry(entry: DashboardEntry) {
       status: b.status,
       commit_sha: b.commit_sha?.substring(0, 7),
       duration_ms: b.duration_ms,
+      started_at: b.started_at,
       finished_at: b.finished_at,
     })),
   };
@@ -119,6 +120,9 @@ function minimizeDrift(d: DriftEntry) {
     env: d.env,
     deployed_sha: d.deployed_sha?.substring(0, 7),
     health: d.health,
+    head_sha: d.branch_head_sha?.substring(0, 7),
+    is_drifted: d.is_drifted,
+    commits_behind: d.commits_behind,
   };
 }
 
@@ -166,6 +170,140 @@ function createServer(client: BuildMeClient, cachedUser?: User): McpServer {
     async ({ verbose }) => {
       const data = await client.getDrift();
       const result = verbose ? data : data.map(minimizeDrift);
+      return { content: [{ type: "text" as const, text: formatResponse(result, verbose) }] };
+    }
+  );
+
+  // --- get_fleet_status ---
+  server.tool(
+    "get_fleet_status",
+    "Unified fleet view: project × env with build status, health, HEAD vs deployed SHA, drift, and timing. Combines dashboard + drift into a single table.",
+    {
+      project_id: z.string().optional().describe("Filter to a single project ID"),
+      verbose: z.boolean().optional().describe("Return full details (default: false)"),
+    },
+    async ({ project_id, verbose }) => {
+      const [dashboard, drift] = await Promise.all([
+        client.getDashboard(),
+        client.getDrift(),
+      ]);
+
+      // Branch→env mapping
+      const branchEnvMap: Record<string, string> = {
+        main: "staging",
+        uat: "uat",
+        production: "production",
+      };
+
+      // Index drift by project_id+env
+      const driftMap = new Map<string, DriftEntry>();
+      for (const d of drift) {
+        driftMap.set(`${d.project_id}:${d.env}`, d);
+      }
+
+      interface FleetRow {
+        project: string;
+        project_id: number;
+        env: string;
+        build: string;
+        build_id: number | null;
+        health: string;
+        head: string;
+        deployed: string;
+        drift: string;
+        started: string;
+        elapsed: string;
+      }
+
+      const rows: FleetRow[] = [];
+
+      for (const entry of dashboard) {
+        if (project_id && String(entry.project.id) !== project_id) continue;
+
+        for (const build of entry.builds) {
+          const env = branchEnvMap[build.branch] || build.branch;
+          const driftEntry = driftMap.get(`${entry.project.id}:${env}`);
+
+          // Health
+          let health = "—";
+          if (driftEntry) {
+            health = driftEntry.health === 200 ? "200 OK" : `${driftEntry.health}`;
+          }
+
+          // HEAD + Deployed
+          const head = driftEntry?.branch_head_sha?.substring(0, 7) || build.commit_sha?.substring(0, 7) || "—";
+          const deployed = driftEntry?.deployed_sha?.substring(0, 7) || "—";
+
+          // Drift
+          let driftStr = "in sync";
+          if (driftEntry?.is_drifted) {
+            driftStr = driftEntry.commits_behind > 0
+              ? `behind (${driftEntry.commits_behind})`
+              : "drifted";
+          }
+
+          // Started
+          let started = "—";
+          if (build.started_at) {
+            const d = new Date(build.started_at);
+            started = `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")} UTC`;
+          }
+
+          // Elapsed
+          let elapsed = "—";
+          if (build.status === "running" || build.status === "queued") {
+            if (build.started_at) {
+              const ms = Date.now() - new Date(build.started_at).getTime();
+              const mins = Math.round(ms / 60000);
+              elapsed = mins < 1 ? "<1m" : `~${mins}m`;
+            }
+          } else if (build.duration_ms != null) {
+            const secs = Math.round(build.duration_ms / 1000);
+            if (secs < 60) elapsed = `${secs}s`;
+            else if (secs < 3600) elapsed = `${Math.round(secs / 60)}m`;
+            else elapsed = `${Math.round(secs / 3600)}h`;
+          }
+
+          rows.push({
+            project: entry.project.name,
+            project_id: entry.project.id,
+            env,
+            build: build.status,
+            build_id: build.id,
+            health,
+            head,
+            deployed,
+            drift: driftStr,
+            started,
+            elapsed,
+          });
+
+          // Remove from driftMap to track envs without builds
+          driftMap.delete(`${entry.project.id}:${env}`);
+        }
+
+        // Add drift-only envs (have deployment but no build record for that branch)
+        for (const [key, d] of driftMap) {
+          if (d.project_id !== entry.project.id) continue;
+          if (project_id && String(d.project_id) !== project_id) continue;
+
+          rows.push({
+            project: entry.project.name,
+            project_id: d.project_id,
+            env: d.env,
+            build: "—",
+            build_id: null,
+            health: d.health === 200 ? "200 OK" : `${d.health}`,
+            head: d.branch_head_sha?.substring(0, 7) || "—",
+            deployed: d.deployed_sha?.substring(0, 7) || "—",
+            drift: d.is_drifted ? (d.commits_behind > 0 ? `behind (${d.commits_behind})` : "drifted") : "in sync",
+            started: "—",
+            elapsed: "—",
+          });
+        }
+      }
+
+      const result = verbose ? { rows, _raw: { dashboard, drift } } : rows;
       return { content: [{ type: "text" as const, text: formatResponse(result, verbose) }] };
     }
   );
