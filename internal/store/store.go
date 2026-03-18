@@ -103,7 +103,8 @@ type Store interface {
 
 	// Resource Incidents
 	CreateResourceIncident(ctx context.Context, incident *models.ResourceIncident) error
-	ListResourceIncidents(ctx context.Context, projectID int64, limit int, showAll bool) ([]models.ResourceIncident, error)
+	ListResourceIncidents(ctx context.Context, projectID int64, userID int64, limit int, showAll bool) ([]models.ResourceIncident, error)
+	GetResourceIncident(ctx context.Context, id int64) (*models.ResourceIncident, error)
 	GetOpenResourceIncident(ctx context.Context, projectID int64, env, metric string) (*models.ResourceIncident, error)
 	ResolveResourceIncident(ctx context.Context, id int64) error
 	IgnoreResourceIncident(ctx context.Context, id int64, ignored bool) error

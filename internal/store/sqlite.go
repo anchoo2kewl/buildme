@@ -961,27 +961,53 @@ func (s *SQLiteStore) CreateResourceIncident(ctx context.Context, inc *models.Re
 	return nil
 }
 
-func (s *SQLiteStore) ListResourceIncidents(ctx context.Context, projectID int64, limit int, showAll bool) ([]models.ResourceIncident, error) {
+func (s *SQLiteStore) ListResourceIncidents(ctx context.Context, projectID int64, userID int64, limit int, showAll bool) ([]models.ResourceIncident, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
 
+	// memberSubquery restricts results to projects the user can access:
+	// direct project membership OR membership in the project's group.
+	// When userID == 0 (super admin or internal) no restriction is applied.
+	const memberSubquery = `ri.project_id IN (
+		SELECT project_id FROM project_members WHERE user_id = ?
+		UNION
+		SELECT p2.id FROM projects p2
+		  JOIN group_members gm ON gm.group_id = p2.group_id
+		  WHERE gm.user_id = ?
+	)`
+
 	var query string
 	var args []any
 	if projectID > 0 {
-		// Project-specific: show everything (including ignored and old resolved)
+		// Project-specific: already gated by project middleware; show everything.
 		query = `SELECT ri.id, ri.project_id, p.name, ri.env, ri.metric, ri.value, ri.threshold, ri.message, ri.created_at, ri.resolved_at, ri.ignored, ri.ignored_at
 			 FROM resource_incidents ri JOIN projects p ON p.id = ri.project_id
 			 WHERE ri.project_id = ? ORDER BY ri.created_at DESC LIMIT ?`
 		args = []any{projectID, limit}
+	} else if userID > 0 && showAll {
+		// Global listing scoped to user's accessible projects (incidents page)
+		query = `SELECT ri.id, ri.project_id, p.name, ri.env, ri.metric, ri.value, ri.threshold, ri.message, ri.created_at, ri.resolved_at, ri.ignored, ri.ignored_at
+			 FROM resource_incidents ri JOIN projects p ON p.id = ri.project_id
+			 WHERE ` + memberSubquery + `
+			 ORDER BY ri.created_at DESC LIMIT ?`
+		args = []any{userID, userID, limit}
+	} else if userID > 0 {
+		// Global listing scoped to user's accessible projects, filtered (dashboard)
+		query = `SELECT ri.id, ri.project_id, p.name, ri.env, ri.metric, ri.value, ri.threshold, ri.message, ri.created_at, ri.resolved_at, ri.ignored, ri.ignored_at
+			 FROM resource_incidents ri JOIN projects p ON p.id = ri.project_id
+			 WHERE ri.ignored = 0 AND (ri.resolved_at IS NULL OR ri.resolved_at > datetime('now', '-24 hours'))
+			   AND ` + memberSubquery + `
+			 ORDER BY ri.created_at DESC LIMIT ?`
+		args = []any{userID, userID, limit}
 	} else if showAll {
-		// Global listing, show all (for incidents page)
+		// Super admin: all incidents
 		query = `SELECT ri.id, ri.project_id, p.name, ri.env, ri.metric, ri.value, ri.threshold, ri.message, ri.created_at, ri.resolved_at, ri.ignored, ri.ignored_at
 			 FROM resource_incidents ri JOIN projects p ON p.id = ri.project_id
 			 ORDER BY ri.created_at DESC LIMIT ?`
 		args = []any{limit}
 	} else {
-		// Global listing, filtered (for dashboard): hide ignored and resolved > 24h
+		// Super admin: filtered (dashboard)
 		query = `SELECT ri.id, ri.project_id, p.name, ri.env, ri.metric, ri.value, ri.threshold, ri.message, ri.created_at, ri.resolved_at, ri.ignored, ri.ignored_at
 			 FROM resource_incidents ri JOIN projects p ON p.id = ri.project_id
 			 WHERE ri.ignored = 0 AND (ri.resolved_at IS NULL OR ri.resolved_at > datetime('now', '-24 hours'))
@@ -1004,6 +1030,18 @@ func (s *SQLiteStore) ListResourceIncidents(ctx context.Context, projectID int64
 		incidents = append(incidents, inc)
 	}
 	return incidents, rows.Err()
+}
+
+func (s *SQLiteStore) GetResourceIncident(ctx context.Context, id int64) (*models.ResourceIncident, error) {
+	var inc models.ResourceIncident
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, project_id, env, metric, value, threshold, message, created_at, resolved_at, ignored, ignored_at
+		 FROM resource_incidents WHERE id = ?`, id).
+		Scan(&inc.ID, &inc.ProjectID, &inc.Env, &inc.Metric, &inc.Value, &inc.Threshold, &inc.Message, &inc.CreatedAt, &inc.ResolvedAt, &inc.Ignored, &inc.IgnoredAt)
+	if err != nil {
+		return nil, err
+	}
+	return &inc, nil
 }
 
 func (s *SQLiteStore) GetOpenResourceIncident(ctx context.Context, projectID int64, env, metric string) (*models.ResourceIncident, error) {
