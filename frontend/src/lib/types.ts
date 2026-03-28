@@ -7,7 +7,7 @@ export type BuildStatus =
   | "error"
   | "skipped";
 
-export type ProviderType = "github" | "github_local" | "travis" | "circleci";
+export type ProviderType = "github" | "github_local" | "github_hosted" | "travis" | "circleci";
 export type ProjectRole = "owner" | "admin" | "editor" | "viewer";
 export type ChannelType = "email" | "webhook" | "webpush";
 

@@ -27,10 +27,11 @@ func (s BuildStatus) IsTerminal() bool {
 type ProviderType string
 
 const (
-	ProviderGitHub      ProviderType = "github"
-	ProviderGitHubLocal ProviderType = "github_local"
-	ProviderTravis      ProviderType = "travis"
-	ProviderCircleCI    ProviderType = "circleci"
+	ProviderGitHub       ProviderType = "github"
+	ProviderGitHubLocal  ProviderType = "github_local"
+	ProviderGitHubHosted ProviderType = "github_hosted"
+	ProviderTravis       ProviderType = "travis"
+	ProviderCircleCI     ProviderType = "circleci"
 )
 
 // ProjectRole represents a member's role in a project.

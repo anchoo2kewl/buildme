@@ -290,4 +290,8 @@ var migrations = []string{
 		PRIMARY KEY (group_id, user_id)
 	)`,
 	"CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members(user_id)",
+	// Migrate AIAgentLens projects from CircleCI to GitHub Hosted
+	`UPDATE ci_providers SET provider_type = 'github_hosted'
+	 WHERE provider_type = 'circleci'
+	   AND project_id IN (SELECT id FROM projects WHERE name LIKE '%Agent%' OR name LIKE '%aiagent%')`,
 }
