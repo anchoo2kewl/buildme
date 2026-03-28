@@ -294,4 +294,6 @@ var migrations = []string{
 	`UPDATE ci_providers SET provider_type = 'github_hosted'
 	 WHERE provider_type = 'circleci'
 	   AND project_id IN (SELECT id FROM projects WHERE name LIKE '%Agent%' OR name LIKE '%aiagent%')`,
+	// Consolidate github_local into github_hosted (same API, no distinction needed)
+	"UPDATE ci_providers SET provider_type = 'github_hosted' WHERE provider_type = 'github_local'",
 }

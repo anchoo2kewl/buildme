@@ -28,7 +28,6 @@ type ProviderType string
 
 const (
 	ProviderGitHub       ProviderType = "github"
-	ProviderGitHubLocal  ProviderType = "github_local"
 	ProviderGitHubHosted ProviderType = "github_hosted"
 	ProviderTravis       ProviderType = "travis"
 	ProviderCircleCI     ProviderType = "circleci"

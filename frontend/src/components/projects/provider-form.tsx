@@ -45,8 +45,7 @@ export const ProviderForm = component$<ProviderFormProps>(({ onSubmit$ }) => {
           class="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-text"
         >
           <option value="github">GitHub Actions</option>
-          <option value="github_hosted">GitHub Hosted Runner</option>
-          <option value="github_local">GitHub Self-Hosted Runner</option>
+          <option value="github_hosted">GitHub Actions (Self-Hosted)</option>
           <option value="travis">Travis CI</option>
           <option value="circleci">CircleCI</option>
         </select>

@@ -136,7 +136,7 @@ func (h *SyncHandler) RetriggerBuild(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch prov.ProviderType {
-	case models.ProviderGitHub, models.ProviderGitHubLocal, models.ProviderGitHubHosted, models.ProviderTravis:
+	case models.ProviderGitHub, models.ProviderGitHubHosted, models.ProviderTravis:
 		err = h.retriggerCheckSuites(r.Context(), prov, build)
 	case models.ProviderCircleCI:
 		err = h.retriggerCircleCI(r.Context(), prov, build)
@@ -175,7 +175,7 @@ func (h *SyncHandler) CancelBuild(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch prov.ProviderType {
-	case models.ProviderGitHub, models.ProviderGitHubLocal, models.ProviderGitHubHosted:
+	case models.ProviderGitHub, models.ProviderGitHubHosted:
 		err = h.cancelGitHub(r.Context(), prov, build)
 	case models.ProviderTravis:
 		err = h.cancelTravis(r.Context(), prov, build)
@@ -335,7 +335,7 @@ func (h *SyncHandler) syncProjectBranches(ctx context.Context, project models.Pr
 		var jobs []models.BuildJob
 
 		switch prov.ProviderType {
-		case models.ProviderGitHub, models.ProviderGitHubLocal, models.ProviderGitHubHosted:
+		case models.ProviderGitHub, models.ProviderGitHubHosted:
 			build, jobs = h.mapCheckRunsToBuild(checkRuns, project.ID, prov.ID, sha, branch, commitMsg, commitAuthor)
 			// Override overall status with workflow-run conclusion (handles continue-on-error jobs)
 			wfRuns, _ := h.fetchWorkflowRuns(ctx, prov.RepoOwner, prov.RepoName, sha)
