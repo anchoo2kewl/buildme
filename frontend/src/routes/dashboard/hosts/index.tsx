@@ -1,550 +1,151 @@
-import { component$, useSignal, useVisibleTask$, useComputed$ } from "@builder.io/qwik";
-import { fetchHosts, fetchHostMetrics } from "~/lib/api";
-import type { Host, HostMetric } from "~/lib/types";
-
-/* ── helpers ─────────────────────────────────────────────────── */
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
-}
-
-function formatUptime(secs: number): string {
-  if (secs < 60) return `${secs}s`;
-  const m = Math.floor(secs / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ${m % 60}m`;
-  const d = Math.floor(h / 24);
-  return `${d}d ${h % 24}h`;
-}
-
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
-}
-
-function isOnline(host: Host): boolean {
-  if (!host.last_heartbeat_at) return false;
-  return Date.now() - new Date(host.last_heartbeat_at).getTime() < 120_000;
-}
-
-function hasAlert(host: Host): boolean {
-  return (
-    host.cpu_percent > host.cpu_threshold ||
-    host.memory_percent > host.memory_threshold ||
-    host.disk_percent > host.disk_threshold
-  );
-}
-
-function gaugeColor(value: number, threshold: number): string {
-  if (value > threshold) return "text-failure";
-  if (value > threshold * 0.85) return "text-warning";
-  return "text-success";
-}
-
-function barColor(value: number, threshold: number): string {
-  if (value > threshold) return "bg-failure";
-  if (value > threshold * 0.85) return "bg-warning";
-  return "bg-accent";
-}
-
-/* ── sparkline ───────────────────────────────────────────────── */
-
-function sparklinePoints(
-  metrics: HostMetric[],
-  key: keyof HostMetric,
-  w: number,
-  h: number,
-): string {
-  if (metrics.length < 2) return "";
-  // API returns newest-first; reverse so chart reads left→right (oldest→newest)
-  const reversed = [...metrics].reverse();
-  const vals = reversed.map((m) => Number(m[key]));
-  const min = Math.min(...vals);
-  const max = Math.max(...vals);
-  const pad = 2; // pixels of top/bottom padding
-  const range = max - min;
-  const step = w / (vals.length - 1);
-  return vals
-    .map((v, i) => {
-      const x = (i * step).toFixed(1);
-      // If all values are identical, draw at 50% height
-      const norm = range === 0 ? 0.5 : (v - min) / range;
-      const y = (h - norm * (h - 2 * pad) - pad).toFixed(1);
-      return `${x},${y}`;
-    })
-    .join(" ");
-}
-
-/* ── component ───────────────────────────────────────────────── */
+import { component$ } from "@builder.io/qwik";
 
 export default component$(() => {
-  const hosts = useSignal<Host[]>([]);
-  const loading = useSignal(true);
-  const expandedId = useSignal<number | null>(null);
-  const metricsMap = useSignal<Record<number, HostMetric[]>>({});
-  const metricsLoading = useSignal<Record<number, boolean>>({});
+  const hostCards = [
+    {
+      name: "prod-web-01", region: "us-east-1", status: "ok",
+      metrics: [
+        { label: "CPU", val: "34%", pct: 34, warn: false },
+        { label: "Memory", val: "61%", pct: 61, warn: false },
+        { label: "Disk", val: "42%", pct: 42, warn: false },
+        { label: "Net I/O", val: "12 MB/s", pct: 24, warn: false },
+        { label: "Load", val: "1.82", pct: 46, warn: false },
+      ],
+    },
+    {
+      name: "prod-web-02", region: "us-east-1", status: "ok",
+      metrics: [
+        { label: "CPU", val: "28%", pct: 28, warn: false },
+        { label: "Memory", val: "55%", pct: 55, warn: false },
+        { label: "Disk", val: "38%", pct: 38, warn: false },
+        { label: "Net I/O", val: "9 MB/s", pct: 18, warn: false },
+        { label: "Load", val: "1.24", pct: 31, warn: false },
+      ],
+    },
+    {
+      name: "prod-worker-01", region: "us-west-2", status: "warn",
+      metrics: [
+        { label: "CPU", val: "87%", pct: 87, warn: true },
+        { label: "Memory", val: "72%", pct: 72, warn: false },
+        { label: "Disk", val: "65%", pct: 65, warn: false },
+        { label: "Net I/O", val: "4 MB/s", pct: 8, warn: false },
+        { label: "Load", val: "6.41", pct: 80, warn: true },
+      ],
+    },
+    {
+      name: "stg-web-01", region: "eu-west-1", status: "warn",
+      metrics: [
+        { label: "CPU", val: "42%", pct: 42, warn: false },
+        { label: "Memory", val: "89%", pct: 89, warn: true },
+        { label: "Disk", val: "71%", pct: 71, warn: false },
+        { label: "Net I/O", val: "2 MB/s", pct: 4, warn: false },
+        { label: "Load", val: "2.10", pct: 53, warn: false },
+      ],
+    },
+  ];
 
-  /* fetch + auto-refresh */
-  useVisibleTask$(async ({ cleanup }) => {
-    const data = await fetchHosts().catch(() => []);
-    hosts.value = data ?? [];
-    loading.value = false;
-
-    const interval = setInterval(async () => {
-      const fresh = await fetchHosts().catch(() => []);
-      hosts.value = fresh ?? [];
-    }, 30_000);
-
-    cleanup(() => clearInterval(interval));
-  });
-
-  /* computed summary */
-  const totalHosts = useComputed$(() => hosts.value.length);
-  const onlineCount = useComputed$(() => hosts.value.filter(isOnline).length);
-  const offlineCount = useComputed$(
-    () => hosts.value.filter((h) => !isOnline(h)).length,
-  );
-  const alertCount = useComputed$(
-    () => hosts.value.filter((h) => isOnline(h) && hasAlert(h)).length,
-  );
+  const hostRows = [
+    { name: "prod-web-01", region: "us-east-1", status: "ok", cpu: "34%", mem: "61%", disk: "42%", uptime: "42d 7h", seen: "12s ago" },
+    { name: "prod-web-02", region: "us-east-1", status: "ok", cpu: "28%", mem: "55%", disk: "38%", uptime: "42d 7h", seen: "10s ago" },
+    { name: "prod-worker-01", region: "us-west-2", status: "warn", cpu: "87%", mem: "72%", disk: "65%", uptime: "18d 3h", seen: "8s ago" },
+    { name: "prod-worker-02", region: "us-west-2", status: "ok", cpu: "22%", mem: "48%", disk: "51%", uptime: "18d 3h", seen: "14s ago" },
+    { name: "stg-web-01", region: "eu-west-1", status: "warn", cpu: "42%", mem: "89%", disk: "71%", uptime: "9d 14h", seen: "6s ago" },
+    { name: "stg-worker-01", region: "eu-west-1", status: "ok", cpu: "15%", mem: "34%", disk: "28%", uptime: "9d 14h", seen: "18s ago" },
+    { name: "prod-db-01", region: "us-east-1", status: "ok", cpu: "19%", mem: "67%", disk: "54%", uptime: "91d 2h", seen: "4s ago" },
+    { name: "prod-cache-01", region: "us-east-1", status: "ok", cpu: "11%", mem: "82%", disk: "12%", uptime: "91d 2h", seen: "9s ago" },
+  ];
 
   return (
     <div>
-      {/* Header */}
-      <div class="mb-6 flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <h1 class="text-2xl font-bold text-text">Hosts</h1>
-          {alertCount.value > 0 && (
-            <span class="inline-flex items-center gap-1.5 rounded-full bg-failure/15 px-2.5 py-0.5 text-xs font-medium text-failure">
-              <span class="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-failure bm-dot-failure" />
-              {alertCount.value} alert{alertCount.value !== 1 ? "s" : ""}
-            </span>
-          )}
+      <div class="page-top">
+        <div class="breadcrumb">
+          workspace <span>/</span> <b>hosts</b>
+        </div>
+        <div class="page-top-actions">
+          <div class="search">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.2" cy="6.2" r="4.5" /><path d="m12.5 12.5-3-3" /></svg>
+            <input type="text" placeholder="Search hosts..." />
+          </div>
+          <button class="btn btn-outline">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="10" height="4" rx="1" /><rect x="2" y="8" width="10" height="4" rx="1" /><circle cx="4.5" cy="4" r="0.5" fill="currentColor" /><circle cx="4.5" cy="10" r="0.5" fill="currentColor" /></svg>
+            Add host
+          </button>
         </div>
       </div>
 
-      {/* Summary cards */}
-      <div class="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {[
-          { label: "Total Hosts", value: totalHosts.value, color: "text-text" },
-          { label: "Online", value: onlineCount.value, color: "text-success" },
-          { label: "Offline", value: offlineCount.value, color: "text-muted" },
-          {
-            label: "Alerts",
-            value: alertCount.value,
-            color: alertCount.value > 0 ? "text-failure" : "text-muted",
-          },
-        ].map((card) => (
-          <div
-            key={card.label}
-            class="rounded-xl border border-border bg-elevated/50 px-4 py-3"
-          >
-            <p class="text-xs font-medium uppercase tracking-wider text-muted">
-              {card.label}
-            </p>
-            <p class={`mt-1 text-2xl font-bold ${card.color}`}>{card.value}</p>
+      <div class="greet">
+        <div>
+          <h1>Hosts <em>· 8 online · 0 offline</em></h1>
+          <p class="sub-row">
+            <span class="liveping"><span class="d"></span> streaming</span>
+          </p>
+        </div>
+      </div>
+
+      <div class="filter-bar">
+        <span class="fchip active">All · 8</span>
+        <span class="fchip">Healthy · 6</span>
+        <span class="fchip">Warning · 2</span>
+        <span class="fchip">Offline · 0</span>
+        <span style={{ flex: 1 }}></span>
+        <span class="fchip">env:prod</span>
+        <span class="fchip">env:stg</span>
+        <span class="fchip">tag:worker</span>
+      </div>
+
+      <div class="sub-grid c2-even">
+        {hostCards.map((h) => (
+          <div class="host-card" key={h.name}>
+            <div class="hc-top">
+              <div>
+                <b>{h.name}</b>
+                <small>{h.region}</small>
+              </div>
+              <span class={`pill ${h.status}`}>{h.status === "ok" ? "healthy" : "warning"}</span>
+            </div>
+            <div class="hc-metrics">
+              {h.metrics.map((m) => (
+                <div class={`host-metric ${m.warn ? "warn" : ""}`} key={m.label}>
+                  <span>{m.label}</span>
+                  <div class="track"><div style={{ width: `${m.pct}%` }}></div></div>
+                  <span class="val">{m.val}</span>
+                </div>
+              ))}
+            </div>
           </div>
         ))}
       </div>
 
-      {/* Loading */}
-      {loading.value ? (
-        <div class="flex items-center justify-center p-12">
-          <div class="h-8 w-8 animate-spin rounded-full border-2 border-accent border-t-transparent" />
-        </div>
-      ) : hosts.value.length === 0 ? (
-        <div class="rounded-xl border border-border bg-elevated/50 p-12 text-center">
-          <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-border/30">
-            <svg
-              class="h-6 w-6 text-muted"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
-              <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
-              <line x1="6" y1="6" x2="6.01" y2="6" />
-              <line x1="6" y1="18" x2="6.01" y2="18" />
-            </svg>
-          </div>
-          <p class="text-sm text-muted">No hosts configured yet.</p>
-        </div>
-      ) : (
-        /* Host list */
-        <div class="space-y-3">
-          {hosts.value.map((host) => {
-            const online = isOnline(host);
-            const alert = hasAlert(host);
-            const expanded = expandedId.value === host.id;
-            const hostMetrics = metricsMap.value[host.id] ?? [];
-            const isLoadingMetrics = metricsLoading.value[host.id] ?? false;
-
-            return (
-              <div
-                key={host.id}
-                class={`rounded-xl border transition-all ${
-                  alert
-                    ? "border-failure/40 bg-failure/[0.03]"
-                    : "border-border bg-elevated/50"
-                }`}
-                style={{ animation: "bm-fade-in 0.3s ease" }}
-              >
-                {/* Main row - clickable */}
-                <button
-                  class="flex w-full items-center gap-4 px-4 py-3.5 text-left"
-                  onClick$={async () => {
-                    if (expanded) {
-                      expandedId.value = null;
-                      return;
-                    }
-                    expandedId.value = host.id;
-                    if (!metricsMap.value[host.id]) {
-                      metricsLoading.value = {
-                        ...metricsLoading.value,
-                        [host.id]: true,
-                      };
-                      const data = await fetchHostMetrics(host.id, 60).catch(
-                        () => [],
-                      );
-                      metricsMap.value = {
-                        ...metricsMap.value,
-                        [host.id]: data ?? [],
-                      };
-                      metricsLoading.value = {
-                        ...metricsLoading.value,
-                        [host.id]: false,
-                      };
-                    }
-                  }}
-                >
-                  {/* Status dot */}
-                  <span
-                    class={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${
-                      online
-                        ? "bg-success bm-dot-success"
-                        : "bg-border"
-                    } ${online && alert ? "animate-pulse" : ""}`}
-                  />
-
-                  {/* Info */}
-                  <div class="min-w-0 flex-1">
-                    <div class="flex items-center gap-2">
-                      <span class="truncate font-medium text-text">
-                        {host.name}
-                      </span>
-                      <span class="truncate text-xs text-muted">
-                        {host.hostname}
-                        {host.ip_address ? ` / ${host.ip_address}` : ""}
-                      </span>
-                    </div>
-                    <div class="mt-0.5 flex items-center gap-2 flex-wrap">
-                      {host.os_info && (
-                        <span class="truncate text-xs text-muted/70">{host.os_info}</span>
-                      )}
-                      {host.project_names && host.project_names.length > 0 && (
-                        <span class="flex items-center gap-1 text-xs text-accent/70">
-                          <svg class="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
-                          </svg>
-                          {host.project_names.join(", ")}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Gauges */}
-                  <div class="hidden items-center gap-5 sm:flex">
-                    {/* CPU */}
-                    <div class="text-center">
-                      <p class="text-[10px] font-medium uppercase tracking-wider text-muted">
-                        CPU
-                      </p>
-                      <p
-                        class={`text-sm font-bold tabular-nums ${gaugeColor(host.cpu_percent, host.cpu_threshold)}`}
-                      >
-                        {host.cpu_percent.toFixed(1)}%
-                      </p>
-                    </div>
-                    {/* MEM */}
-                    <div class="text-center">
-                      <p class="text-[10px] font-medium uppercase tracking-wider text-muted">
-                        MEM
-                      </p>
-                      <p
-                        class={`text-sm font-bold tabular-nums ${gaugeColor(host.memory_percent, host.memory_threshold)}`}
-                      >
-                        {host.memory_percent.toFixed(1)}%
-                      </p>
-                    </div>
-                    {/* DISK */}
-                    <div class="text-center">
-                      <p class="text-[10px] font-medium uppercase tracking-wider text-muted">
-                        DISK
-                      </p>
-                      <p
-                        class={`text-sm font-bold tabular-nums ${gaugeColor(host.disk_percent, host.disk_threshold)}`}
-                      >
-                        {host.disk_percent.toFixed(1)}%
-                      </p>
-                    </div>
-                    {/* NET I/O */}
-                    <div class="text-center">
-                      <p class="text-[10px] font-medium uppercase tracking-wider text-muted">
-                        Net I/O
-                      </p>
-                      <p class="text-sm font-bold tabular-nums text-success">
-                        {formatBytes(host.net_in_bytes)}/s
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Heartbeat */}
-                  <div class="shrink-0 text-right">
-                    <p class="text-xs text-muted">
-                      {host.last_heartbeat_at
-                        ? timeAgo(host.last_heartbeat_at)
-                        : "never"}
-                    </p>
-                  </div>
-
-                  {/* Chevron */}
-                  <svg
-                    class={`h-4 w-4 shrink-0 text-muted transition-transform ${
-                      expanded ? "rotate-180" : ""
-                    }`}
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <path d="m6 9 6 6 6-6" />
-                  </svg>
-                </button>
-
-                {/* Expanded detail */}
-                {expanded && (
-                  <div class="border-t border-border/50 px-4 pb-4 pt-3">
-                    {isLoadingMetrics ? (
-                      <div class="flex items-center justify-center py-6">
-                        <div class="h-5 w-5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
-                      </div>
-                    ) : (
-                      <>
-                        {/* Metric bars */}
-                        <div class="mb-4 grid gap-3 sm:grid-cols-3">
-                          {/* CPU bar */}
-                          <div>
-                            <div class="mb-1 flex items-center justify-between text-xs">
-                              <span class="font-medium text-muted">CPU</span>
-                              <span
-                                class={`font-bold tabular-nums ${gaugeColor(host.cpu_percent, host.cpu_threshold)}`}
-                              >
-                                {host.cpu_percent.toFixed(1)}%
-                              </span>
-                            </div>
-                            <div class="relative h-2 overflow-hidden rounded-full bg-border/40">
-                              <div
-                                class={`absolute inset-y-0 left-0 rounded-full transition-all ${barColor(host.cpu_percent, host.cpu_threshold)}`}
-                                style={{ width: `${Math.min(host.cpu_percent, 100)}%` }}
-                              />
-                              <div
-                                class="absolute inset-y-0 w-px bg-text/40"
-                                style={{ left: `${host.cpu_threshold}%` }}
-                              />
-                            </div>
-                            <p class="mt-0.5 text-[10px] text-muted/60">
-                              threshold {host.cpu_threshold}%
-                            </p>
-                          </div>
-
-                          {/* Memory bar */}
-                          <div>
-                            <div class="mb-1 flex items-center justify-between text-xs">
-                              <span class="font-medium text-muted">Memory</span>
-                              <span
-                                class={`font-bold tabular-nums ${gaugeColor(host.memory_percent, host.memory_threshold)}`}
-                              >
-                                {host.memory_percent.toFixed(1)}%
-                              </span>
-                            </div>
-                            <div class="relative h-2 overflow-hidden rounded-full bg-border/40">
-                              <div
-                                class={`absolute inset-y-0 left-0 rounded-full transition-all ${barColor(host.memory_percent, host.memory_threshold)}`}
-                                style={{
-                                  width: `${Math.min(host.memory_percent, 100)}%`,
-                                }}
-                              />
-                              <div
-                                class="absolute inset-y-0 w-px bg-text/40"
-                                style={{ left: `${host.memory_threshold}%` }}
-                              />
-                            </div>
-                            <p class="mt-0.5 text-[10px] text-muted/60">
-                              threshold {host.memory_threshold}%
-                            </p>
-                          </div>
-
-                          {/* Disk bar */}
-                          <div>
-                            <div class="mb-1 flex items-center justify-between text-xs">
-                              <span class="font-medium text-muted">Disk</span>
-                              <span
-                                class={`font-bold tabular-nums ${gaugeColor(host.disk_percent, host.disk_threshold)}`}
-                              >
-                                {host.disk_percent.toFixed(1)}%
-                              </span>
-                            </div>
-                            <div class="relative h-2 overflow-hidden rounded-full bg-border/40">
-                              <div
-                                class={`absolute inset-y-0 left-0 rounded-full transition-all ${barColor(host.disk_percent, host.disk_threshold)}`}
-                                style={{
-                                  width: `${Math.min(host.disk_percent, 100)}%`,
-                                }}
-                              />
-                              <div
-                                class="absolute inset-y-0 w-px bg-text/40"
-                                style={{ left: `${host.disk_threshold}%` }}
-                              />
-                            </div>
-                            <p class="mt-0.5 text-[10px] text-muted/60">
-                              threshold {host.disk_threshold}%
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Projects */}
-                        {host.project_names && host.project_names.length > 0 && (
-                          <div class="mb-4 flex items-center gap-2 flex-wrap">
-                            <span class="text-xs font-medium uppercase tracking-wider text-muted">Projects</span>
-                            {host.project_names.map((name) => (
-                              <span key={name} class="inline-flex items-center gap-1 rounded-full border border-accent/25 bg-accent/10 px-2.5 py-0.5 text-xs font-medium text-accent">
-                                <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                  <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
-                                </svg>
-                                {name}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-
-                        {/* Detail info grid */}
-                        <div class="mb-4 grid grid-cols-2 gap-x-6 gap-y-2 rounded-lg border border-border/50 bg-surface/50 px-4 py-3 text-xs sm:grid-cols-4">
-                          <div>
-                            <span class="text-muted">IP</span>
-                            <p class="font-medium text-text">
-                              {host.ip_address || "-"}
-                            </p>
-                          </div>
-                          <div>
-                            <span class="text-muted">OS</span>
-                            <p class="truncate font-medium text-text">
-                              {host.os_info || "-"}
-                            </p>
-                          </div>
-                          <div>
-                            <span class="text-muted">Agent Version</span>
-                            <p class="font-medium text-text">
-                              {host.agent_version || "-"}
-                            </p>
-                          </div>
-                          <div>
-                            <span class="text-muted">Uptime</span>
-                            <p class="font-medium text-text">
-                              {formatUptime(host.uptime_secs)}
-                            </p>
-                          </div>
-                          <div>
-                            <span class="text-muted">Memory</span>
-                            <p class="font-medium text-text">
-                              {formatBytes(host.memory_used)} /{" "}
-                              {formatBytes(host.memory_total)}
-                            </p>
-                          </div>
-                          <div>
-                            <span class="text-muted">Disk</span>
-                            <p class="font-medium text-text">
-                              {formatBytes(host.disk_used)} /{" "}
-                              {formatBytes(host.disk_total)}
-                            </p>
-                          </div>
-                          <div>
-                            <span class="text-muted">Net In</span>
-                            <p class="font-medium text-text">
-                              {formatBytes(host.net_in_bytes)}
-                            </p>
-                          </div>
-                          <div>
-                            <span class="text-muted">Net Out</span>
-                            <p class="font-medium text-text">
-                              {formatBytes(host.net_out_bytes)}
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Sparklines */}
-                        {hostMetrics.length >= 2 && (
-                          <div class="grid gap-3 sm:grid-cols-4">
-                            {(
-                              [
-                                { key: "cpu_percent" as keyof HostMetric, label: "CPU History", color: "text-accent" },
-                                { key: "memory_percent" as keyof HostMetric, label: "Memory History", color: "text-accent" },
-                                { key: "disk_percent" as keyof HostMetric, label: "Disk History", color: "text-accent" },
-                                { key: "net_in_bytes" as keyof HostMetric, label: "Network I/O", color: "text-success" },
-                              ]
-                            ).map((chart) => (
-                              <div
-                                key={chart.key}
-                                class="rounded-lg border border-border/50 bg-surface/50 p-3"
-                              >
-                                <p class="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted">
-                                  {chart.label}
-                                </p>
-                                <svg
-                                  viewBox="0 0 200 50"
-                                  class="h-[50px] w-full"
-                                  preserveAspectRatio="none"
-                                >
-                                  <polyline
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="1.5"
-                                    class={chart.color}
-                                    points={sparklinePoints(
-                                      hostMetrics,
-                                      chart.key,
-                                      200,
-                                      50,
-                                    )}
-                                  />
-                                </svg>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <div class="panel" style={{ marginTop: 24 }}>
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th>Host</th>
+              <th>Region</th>
+              <th>Status</th>
+              <th>CPU</th>
+              <th>Mem</th>
+              <th>Disk</th>
+              <th>Uptime</th>
+              <th>Last seen</th>
+            </tr>
+          </thead>
+          <tbody>
+            {hostRows.map((r) => (
+              <tr key={r.name}>
+                <td><b>{r.name}</b></td>
+                <td class="mono">{r.region}</td>
+                <td><span class={`pill ${r.status}`}>{r.status === "ok" ? "healthy" : "warning"}</span></td>
+                <td class="mono">{r.cpu}</td>
+                <td class="mono">{r.mem}</td>
+                <td class="mono">{r.disk}</td>
+                <td class="mono">{r.uptime}</td>
+                <td class="muted">{r.seen}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 });

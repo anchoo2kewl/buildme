@@ -14,10 +14,13 @@ export default component$(() => {
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-        <title>BuildMe — CI/CD Build Monitor</title>
+        <title>BuildMe — Build Intelligence Platform</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Instrument+Serif&display=swap" rel="stylesheet" />
         <ServiceWorkerRegister />
       </head>
-      <body class="bg-surface text-text min-h-screen antialiased">
+      <body>
         <RouterOutlet />
       </body>
     </QwikCityProvider>

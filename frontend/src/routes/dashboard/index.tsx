@@ -1,1003 +1,693 @@
-import { component$, useSignal, useVisibleTask$, useComputed$, $, type Signal } from "@builder.io/qwik";
-import { fetchDrift, fetchDashboard, fetchVersionOverview, fetchIncidents, fetchGroups, syncProject } from "~/lib/api";
-import type {
-  DriftDashboard,
-  DashboardEntry,
-  EnvironmentStatus,
-  DriftProject,
-  Build,
-  ProbesSummary,
-  ProviderType,
-  VersionOverviewEntry,
-  ResourceIncident,
-  ProjectGroup,
-} from "~/lib/types";
-import { parseMetadata } from "~/lib/types";
-import { EnvironmentDetail } from "~/components/environments/environment-detail";
-import { CIProviderIcon, providerDisplayName } from "~/components/shared/ci-provider-icon";
-
-type EnvFilter = "all" | "production" | "staging" | "uat";
-
-const ENVS_ORDER = ["production", "staging", "uat"] as const;
+import { component$ } from "@builder.io/qwik";
 
 export default component$(() => {
-  const drift = useSignal<DriftDashboard | null>(null);
-  const dashboard = useSignal<DashboardEntry[] | null>(null);
-  const versionOverview = useSignal<VersionOverviewEntry[] | null>(null);
-  const incidents = useSignal<ResourceIncident[]>([]);
-  const selectedEnv = useSignal<EnvironmentStatus | null>(null);
-  const groups = useSignal<ProjectGroup[]>([]);
-  const collapsedGroups = useSignal<Set<number>>(new Set());
-  const loading = useSignal(true);
-  const refreshing = useSignal(false);
-  const lastChecked = useSignal<string | null>(null);
-  const envFilter = useSignal<EnvFilter>("all");
-
-  const doRefresh = $(async () => {
-    const [driftData, dashData, versionData, incidentsData, groupsData] = await Promise.all([
-      fetchDrift().catch(() => null),
-      fetchDashboard().catch(() => null),
-      fetchVersionOverview().catch(() => null),
-      fetchIncidents(50).catch(() => []),
-      fetchGroups().catch(() => []),
-    ]);
-    drift.value = driftData;
-    dashboard.value = dashData;
-    versionOverview.value = versionData;
-    incidents.value = incidentsData ?? [];
-    groups.value = groupsData ?? [];
-    lastChecked.value = new Date().toLocaleTimeString();
-  });
-
-  const toggleGroup = $((groupId: number) => {
-    const next = new Set(collapsedGroups.value);
-    if (next.has(groupId)) next.delete(groupId);
-    else next.add(groupId);
-    collapsedGroups.value = next;
-    localStorage.setItem("buildme_collapsed_groups", JSON.stringify([...next]));
-  });
-
-  useVisibleTask$(async ({ cleanup }) => {
-    try {
-      const saved = localStorage.getItem("buildme_collapsed_groups");
-      if (saved) collapsedGroups.value = new Set(JSON.parse(saved));
-    } catch { /* ignore */ }
-
-    try {
-      await doRefresh();
-    } finally {
-      loading.value = false;
-    }
-
-    // Listen for version.updated and build events via WebSocket
-    const token = typeof window !== "undefined" ? localStorage.getItem("buildme_token") : null;
-    if (token && typeof window !== "undefined") {
-      const { BuildMeWS } = await import("~/lib/ws");
-      const ws = new BuildMeWS(token);
-      ws.connect();
-
-      // Subscribe to all projects once drift data is loaded
-      if (drift.value?.projects) {
-        for (const dp of drift.value.projects) {
-          ws.subscribe(dp.project.id);
-        }
-      }
-
-      const unsub = ws.onEvent((event) => {
-        if (event.type === "version.updated" || event.type === "build.completed" || event.type === "build.created" || event.type === "build.updated" || event.type === "incident.created" || event.type === "incident.resolved") {
-          doRefresh();
-        }
-      });
-
-      cleanup(() => {
-        unsub();
-        ws.disconnect();
-      });
-    }
-  });
-
-  // Merge drift + builds into unified card data
-  const cards = useComputed$(() => {
-    if (!drift.value) return [];
-    return drift.value.projects
-      .filter((dp) => {
-        if (envFilter.value === "all") return true;
-        return dp.environments.some((e) => e.env === envFilter.value);
-      })
-      .map((dp) => {
-        const builds =
-          dashboard.value?.find((d) => d.project.id === dp.project.id)
-            ?.builds ?? [];
-        return { dp, builds };
-      });
-  });
-
-  const visibleGroups = useComputed$(() => {
-    return groups.value
-      .filter((g) => g.visible)
-      .sort((a, b) => a.sort_order - b.sort_order);
-  });
-
-  const ungroupedCards = useComputed$(() => {
-    return cards.value.filter(({ dp }) => dp.project.group_id == null);
-  });
-
   return (
     <div>
-      <div class="mb-6 flex items-center justify-between">
-        <h1 class="text-2xl font-bold text-text">Dashboard</h1>
-        <div class="flex items-center gap-3">
-          {lastChecked.value && (
-            <span class="text-xs text-muted">
-              Last checked {lastChecked.value}
+      {/* ── Page top bar ── */}
+      <div class="page-top">
+        <div class="breadcrumb">
+          workspace <span>/</span> <b>overview</b>
+        </div>
+        <div class="page-top-actions">
+          <div class="search">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+            <input type="text" placeholder="Search builds, projects..." />
+            <span class="kbd">/</span>
+          </div>
+          <button class="btn btn-outline">Add provider</button>
+          <button class="btn btn-primary">New project</button>
+        </div>
+      </div>
+
+      {/* ── Greeting ── */}
+      <div class="greet">
+        <div>
+          <h1>Overview <em>&middot; 147 builds in the last 24h</em></h1>
+          <div class="sub-row">
+            <span class="liveping">
+              <span class="d"></span>
+              Live &middot; WebSocket connected
             </span>
-          )}
-          <button
-            class="inline-flex items-center gap-1.5 rounded-lg border border-border bg-elevated px-3 py-1.5 text-sm text-text transition-all hover:border-accent/40 hover:shadow-[0_0_12px_rgba(129,140,248,0.06)] disabled:opacity-50"
-            disabled={refreshing.value}
-            onClick$={async () => {
-              refreshing.value = true;
-              await doRefresh();
-              refreshing.value = false;
-            }}
-          >
-            <svg class={`h-3.5 w-3.5 ${refreshing.value ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
-              <path d="M21 3v5h-5" />
-            </svg>
-            {refreshing.value ? "Refreshing..." : "Refresh"}
-          </button>
-          <a
-            href="/dashboard/projects/new"
-            class="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-accent to-indigo-400 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-accent/20 transition-all hover:shadow-accent/30 hover:brightness-110"
-          >
-            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-            New Project
-          </a>
+            <span>Last synced 2m ago</span>
+          </div>
         </div>
       </div>
 
-      {/* Environment filter pills */}
-      <div class="mb-5 inline-flex rounded-xl bg-elevated/60 p-1">
-        {(["all", "production", "staging", "uat"] as const).map((tab) => (
-          <button
-            key={tab}
-            class={`rounded-lg px-4 py-1.5 text-sm font-medium capitalize transition-all ${
-              envFilter.value === tab
-                ? "bg-accent/15 text-accent shadow-sm"
-                : "text-muted hover:text-text"
-            }`}
-            onClick$={() => {
-              envFilter.value = tab;
-            }}
-          >
-            {tab}
-          </button>
-        ))}
+      {/* ── Filter bar ── */}
+      <div class="filter-bar">
+        <span class="fchip active">All providers</span>
+        <span class="fchip">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" /></svg>
+          GitHub Actions &middot; 98
+        </span>
+        <span class="fchip">Travis CI &middot; 14</span>
+        <span class="fchip">CircleCI &middot; 35</span>
+        <span style={{ flex: 1 }}></span>
+        <span class="fchip">prod</span>
+        <span class="fchip">branch:main</span>
+        <span class="fchip active">last 24h</span>
       </div>
 
-      {/* Recent Incidents Banner */}
-      {incidents.value.length > 0 && <IncidentsBanner incidents={incidents.value} />}
-
-      {loading.value ? (
-        <div class="flex items-center justify-center p-8">
-          <div class="h-8 w-8 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+      {/* ── KPIs ── */}
+      <div class="kpis">
+        <div class="kpi">
+          <div class="kpi-label">
+            Build success rate
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><path d="m9 12 2 2 4-4" /></svg>
+          </div>
+          <div class="kpi-value">
+            94.2%
+            <span class="kpi-delta">+1.2%</span>
+          </div>
+          <div class="kpi-spark">
+            <svg width="100%" height="26" viewBox="0 0 120 26" preserveAspectRatio="none">
+              <polyline points="0,20 10,18 20,15 30,16 40,12 50,10 60,14 70,8 80,6 90,9 100,5 110,4 120,3" fill="none" stroke="var(--accent)" stroke-width="1.5" />
+            </svg>
+          </div>
+          <div class="kpi-foot">vs 93.0% last week</div>
         </div>
-      ) : cards.value.length === 0 ? (
-        <div class="rounded-lg border border-border bg-elevated p-12 text-center">
-          <h2 class="text-lg font-semibold text-text">No projects</h2>
-          <p class="mt-2 text-sm text-muted">
-            Configure environment URLs on your projects to see status.
-          </p>
-        </div>
-      ) : (
-        <div class="flex flex-col gap-6">
-          {/* Visible groups */}
-          {visibleGroups.value.map((group) => {
-            const groupCards = cards.value.filter(({ dp }) => dp.project.group_id === group.id);
-            if (groupCards.length === 0) return null;
-            const isCollapsed = collapsedGroups.value.has(group.id);
-            return (
-              <div key={group.id}>
-                <button
-                  class="mb-3 flex w-full items-center gap-2 text-left"
-                  onClick$={() => toggleGroup(group.id)}
-                >
-                  <svg class={`h-3.5 w-3.5 text-muted transition-transform ${isCollapsed ? "" : "rotate-90"}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="9 18 15 12 9 6" />
-                  </svg>
-                  <span class="text-sm font-semibold text-text">{group.name}</span>
-                  <span class="text-xs text-muted">{groupCards.length} project{groupCards.length !== 1 ? "s" : ""}</span>
-                </button>
-                {!isCollapsed && (
-                  <div class="bm-cards flex flex-col gap-4">
-                    {groupCards.map(({ dp, builds }) => (
-                      <ProjectCard key={dp.project.id} dp={dp} builds={builds} envFilter={envFilter.value} selectedEnv={selectedEnv} onRefresh$={doRefresh} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
 
-          {/* Ungrouped projects */}
-          {ungroupedCards.value.length > 0 && (
-            <div>
-              {visibleGroups.value.length > 0 && (
-                <div class="mb-3 flex items-center gap-2">
-                  <span class="text-sm font-semibold text-text">Ungrouped</span>
-                  <span class="text-xs text-muted">{ungroupedCards.value.length} project{ungroupedCards.value.length !== 1 ? "s" : ""}</span>
-                </div>
-              )}
-              <div class="bm-cards flex flex-col gap-4">
-                {ungroupedCards.value.map(({ dp, builds }) => (
-                  <ProjectCard key={dp.project.id} dp={dp} builds={builds} envFilter={envFilter.value} selectedEnv={selectedEnv} onRefresh$={doRefresh} />
-                ))}
+        <div class="kpi">
+          <div class="kpi-label">
+            Running now
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
+          </div>
+          <div class="kpi-value">
+            4
+            <span class="kpi-delta warn">2 queued</span>
+          </div>
+          <div class="kpi-spark">
+            <svg width="100%" height="26" viewBox="0 0 120 26" preserveAspectRatio="none">
+              <polyline points="0,22 10,20 20,18 30,22 40,14 50,10 60,16 70,12 80,8 90,14 100,10 110,6 120,8" fill="none" stroke="var(--info)" stroke-width="1.5" />
+            </svg>
+          </div>
+          <div class="kpi-foot">peak 12 at 14:30</div>
+        </div>
+
+        <div class="kpi">
+          <div class="kpi-label">
+            Avg duration
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+          </div>
+          <div class="kpi-value">
+            1m 24s
+            <span class="kpi-delta down">+8s</span>
+          </div>
+          <div class="kpi-spark">
+            <svg width="100%" height="26" viewBox="0 0 120 26" preserveAspectRatio="none">
+              <polyline points="0,8 10,10 20,12 30,9 40,14 50,16 60,12 70,18 80,15 90,13 100,16 110,14 120,15" fill="none" stroke="var(--warn)" stroke-width="1.5" />
+            </svg>
+          </div>
+          <div class="kpi-foot">p95 = 3m 42s</div>
+        </div>
+
+        <div class="kpi">
+          <div class="kpi-label">
+            Open incidents
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
+          </div>
+          <div class="kpi-value">
+            3
+            <span class="kpi-delta down">+1</span>
+          </div>
+          <div class="kpi-spark">
+            <svg width="100%" height="26" viewBox="0 0 120 26" preserveAspectRatio="none">
+              <polyline points="0,18 10,16 20,20 30,14 40,18 50,12 60,16 70,10 80,14 90,8 100,12 110,10 120,8" fill="none" stroke="var(--danger)" stroke-width="1.5" />
+            </svg>
+          </div>
+          <div class="kpi-foot">1 critical, 2 warning</div>
+        </div>
+
+        <div class="kpi">
+          <div class="kpi-label">
+            Drift detected
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10" /><path d="M12 20V4" /><path d="M6 20v-6" /></svg>
+          </div>
+          <div class="kpi-value">
+            2
+            <span class="kpi-delta warn">envs</span>
+          </div>
+          <div class="kpi-spark">
+            <svg width="100%" height="26" viewBox="0 0 120 26" preserveAspectRatio="none">
+              <polyline points="0,14 10,12 20,16 30,10 40,8 50,12 60,6 70,10 80,4 90,8 100,6 110,4 120,6" fill="none" stroke="var(--warn)" stroke-width="1.5" />
+            </svg>
+          </div>
+          <div class="kpi-foot">api-service, worker</div>
+        </div>
+      </div>
+
+      {/* ── Two-column layout ── */}
+      <div class="two-col">
+        {/* ── Left column ── */}
+        <div>
+          {/* Build stream panel */}
+          <div class="panel">
+            <div class="panel-head">
+              <h3>
+                Build stream
+                <span class="cnt">147</span>
+              </h3>
+              <div class="tools">
+                <span class="tab" aria-selected="true">All</span>
+                <span class="tab">Running</span>
+                <span class="tab">Failed</span>
               </div>
             </div>
-          )}
-        </div>
-      )}
+            <div class="panel-body p0">
+              <div class="b-table">
+                <div class="brow head">
+                  <span></span>
+                  <span>Build</span>
+                  <span>Branch</span>
+                  <span>Provider</span>
+                  <span>Duration</span>
+                  <span>When</span>
+                  <span>Trigger</span>
+                  <span></span>
+                </div>
 
-      <EnvironmentDetail env={selectedEnv} />
-    </div>
-  );
-});
-
-// ─── Helpers ──────────────────────────────────────
-
-function formatDuration(ms: number): string {
-  const s = Math.floor(ms / 1000);
-  const m = Math.floor(s / 60);
-  const sec = s % 60;
-  if (m > 0) return `${m}m${sec > 0 ? `${sec}s` : ""}`;
-  return `${sec}s`;
-}
-
-function formatUptime(seconds: number): string {
-  const d = Math.floor(seconds / 86400);
-  const h = Math.floor((seconds % 86400) / 3600);
-  if (d > 0) return `${d}d ${h}h`;
-  if (h > 0) return `${h}h`;
-  const m = Math.floor(seconds / 60);
-  return `${m}m`;
-}
-
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
-}
-
-function formatElapsed(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const s = Math.floor(diff / 1000);
-  const m = Math.floor(s / 60);
-  const sec = s % 60;
-  if (m > 0) return `${m}m${sec > 0 ? `${sec}s` : ""}`;
-  return `${sec}s`;
-}
-
-function statusColor(status: number): string {
-  if (status === 200) return "bg-success bm-dot-success";
-  if (status > 0) return "bg-warning bm-dot-warning";
-  return "bg-failure bm-dot-failure";
-}
-
-function buildStatusColor(status: string): string {
-  switch (status) {
-    case "success":
-      return "text-success";
-    case "failure":
-    case "error":
-      return "text-failure";
-    case "running":
-    case "queued":
-      return "text-running";
-    case "cancelled":
-      return "text-warning";
-    default:
-      return "text-muted";
-  }
-}
-
-function BuildStatusIcon({ status }: { status: string }) {
-  const cls = "h-3.5 w-3.5";
-  switch (status) {
-    case "success":
-      return (
-        <svg class={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="10" opacity="0.2" fill="currentColor" />
-          <path d="m9 12 2 2 4-4" />
-        </svg>
-      );
-    case "failure":
-    case "error":
-      return (
-        <svg class={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="10" opacity="0.2" fill="currentColor" />
-          <path d="m15 9-6 6M9 9l6 6" />
-        </svg>
-      );
-    case "running":
-      return (
-        <svg class={`${cls} animate-spin`} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-        </svg>
-      );
-    case "queued":
-      return (
-        <svg class={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="10" />
-          <polyline points="12 6 12 12 16 14" />
-        </svg>
-      );
-    case "cancelled":
-      return (
-        <svg class={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-          <circle cx="12" cy="12" r="10" opacity="0.2" fill="currentColor" />
-          <path d="M4.93 4.93l14.14 14.14" />
-        </svg>
-      );
-    default:
-      return <span class="inline-block h-1.5 w-1.5 rounded-full bg-current" />;
-  }
-}
-
-function getVal(
-  obj: Record<string, unknown> | null | undefined,
-  ...keys: string[]
-): unknown {
-  let cur: unknown = obj;
-  for (const k of keys) {
-    if (cur == null || typeof cur !== "object") return undefined;
-    cur = (cur as Record<string, unknown>)[k];
-  }
-  return cur;
-}
-
-// ─── Project Card ─────────────────────────────────
-
-interface ProjectCardProps {
-  dp: DriftProject;
-  builds: Build[];
-  envFilter: EnvFilter;
-  selectedEnv: Signal<EnvironmentStatus | null>;
-  onRefresh$: () => Promise<void>;
-}
-
-const ProjectCard = component$<ProjectCardProps>(
-  ({ dp, builds, envFilter, selectedEnv, onRefresh$ }) => {
-    const meta = parseMetadata(dp.project);
-    // Unique CI providers from builds
-    const ciProviders = [
-      ...new Set(
-        builds
-          .map((b) => b.provider_type)
-          .filter((t): t is ProviderType => !!t),
-      ),
-    ];
-    const envs = ENVS_ORDER.filter((env) => {
-      if (envFilter !== "all" && env !== envFilter) return false;
-      return dp.environments.some((e) => e.env === env);
-    });
-
-    // Find the main branch build (latest)
-    const mainBuild = builds.find((b) => b.branch === "main") ?? builds[0];
-
-    // Extract probes — prefer production (where probes connect), fall back to any env
-    const probes = dp.environments.reduce<ProbesSummary | null>((acc, e) => {
-      const p = e.version_info?.["probes"] as ProbesSummary | undefined;
-      if (!p) return acc;
-      // Prefer the environment with more connected probes
-      if (!acc || (p.connected ?? 0) > (acc.connected ?? 0)) return p;
-      return acc;
-    }, null);
-
-    return (
-      <div class="bm-card rounded-xl border border-border bg-elevated">
-        {/* Card Header */}
-        <div class="flex items-center justify-between border-b border-border px-5 py-3">
-          <div class="flex items-center gap-3">
-            <a
-              href={`/dashboard/projects/${dp.project.id}`}
-              class="text-base font-bold text-text hover:text-accent"
-            >
-              {dp.project.name}
-            </a>
-            {dp.project.description && (
-              <span class="text-xs text-muted">
-                {dp.project.description}
-              </span>
-            )}
-          </div>
-          <div class="flex items-center gap-2">
-            <button
-              class="rounded p-1 text-muted transition-colors hover:text-accent"
-              title="Refresh this project"
-              onClick$={async (e: Event) => {
-                e.stopPropagation();
-                await syncProject(dp.project.id).catch(() => {});
-                await onRefresh$();
-              }}
-            >
-              <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
-                <path d="M21 3v5h-5" />
-              </svg>
-            </button>
-            {ciProviders.map((pt) => (
-              <span
-                key={pt}
-                class="bm-tag inline-flex items-center gap-1 rounded bg-border/50 px-2 py-0.5 text-[11px] font-medium text-muted"
-                title={providerDisplayName(pt)}
-              >
-                <CIProviderIcon provider={pt} size={22} />
-              </span>
-            ))}
-            {(meta.mcp_url || (meta.mcp_urls && Object.keys(meta.mcp_urls).length > 0)) && (() => {
-              // Check if any environment has MCP health data
-              const mcpEnv = dp.environments.find((e) => e.mcp_health_status != null && e.mcp_health_status > 0);
-              const mcpHealthy = mcpEnv ? mcpEnv.mcp_health_status === 200 : null;
-              const colorClass = mcpHealthy === null
-                ? "bg-border/50 text-muted"
-                : mcpHealthy
-                  ? "bg-success/15 text-success"
-                  : "bg-failure/15 text-failure";
-              const dotClass = mcpHealthy === null
-                ? "bg-muted"
-                : mcpHealthy
-                  ? "bg-success"
-                  : "bg-failure";
-              let port = "";
-              const mcpUrlDisplay = meta.mcp_url || Object.values(meta.mcp_urls || {})[0] || "";
-              try {
-                const u = new URL(mcpUrlDisplay);
-                if (u.port) port = `:${u.port}`;
-              } catch { /* ignore */ }
-              return (
-                <span
-                  class={`bm-tag inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium ${colorClass}`}
-                  title={mcpUrlDisplay}
-                >
-                  <span class={`inline-block h-1.5 w-1.5 rounded-full ${dotClass}`} />
-                  MCP{port}
-                </span>
-              );
-            })()}
-            {meta.deployment_type && (
-              <span class="bm-tag rounded bg-accent/15 px-2 py-0.5 text-[11px] font-medium text-accent">
-                {meta.deployment_type}
-              </span>
-            )}
-            {meta.tech_stack?.map((t) => (
-              <span
-                key={t}
-                class="bm-tag rounded bg-border/50 px-2 py-0.5 text-[11px] font-medium text-muted"
-              >
-                {t}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        {/* Environment Columns */}
-        <div
-          class="bm-env-grid grid gap-0 divide-x divide-border"
-          style={{ gridTemplateColumns: `repeat(${envs.length}, 1fr)` }}
-        >
-          {envs.map((env) => {
-            const es = dp.environments.find((e) => e.env === env);
-            if (!es) return null;
-            const vi = es.version_info;
-            const runtime = vi?.["runtime"] as
-              | Record<string, unknown>
-              | undefined;
-            const backend = vi?.["backend"] as
-              | Record<string, unknown>
-              | undefined;
-            const frontend = vi?.["frontend"] as
-              | Record<string, unknown>
-              | undefined;
-            const database = vi?.["database"] as
-              | Record<string, unknown>
-              | undefined;
-            const envProbes = vi?.["probes"] as
-              | { total?: number; connected?: number }
-              | undefined;
-            const ports = meta.ports?.[env];
-
-            return (
-              <button
-                key={env}
-                class="bm-env-col px-4 py-3 text-left transition-colors hover:bg-surface/50"
-                onClick$={() => {
-                  selectedEnv.value = es;
-                }}
-              >
-                <div class="mb-2 flex items-center justify-between">
-                  <span class="text-[11px] font-semibold uppercase tracking-wider text-muted">
-                    {env}
-                  </span>
-                  <div class="flex items-center gap-1.5">
-                    <span
-                      class={`inline-block h-2 w-2 rounded-full ${statusColor(es.health_status)}`}
-                    />
-                    <span class="font-mono text-xs text-text">
-                      {es.health_status || "—"}
-                    </span>
-                    <span class="text-xs text-muted">
-                      {es.response_time_ms}ms
-                    </span>
+                {/* Row 1 - success */}
+                <div class="brow">
+                  <div class="ico ok">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
                   </div>
-                </div>
-
-                {/* URL */}
-                <div class="mb-1 truncate text-xs text-muted">
-                  {es.base_url.replace(/^https?:\/\//, "")}
-                </div>
-
-                {/* SHA + drift */}
-                <div class="mb-1 flex items-center gap-2">
-                  {es.deployed_sha && (
-                    <span class="font-mono text-xs text-text">
-                      {es.deployed_sha.substring(0, 7)}
-                    </span>
-                  )}
-                  {es.branch_head_sha &&
-                    es.deployed_sha &&
-                    es.deployed_sha.substring(0, 7) !==
-                      es.branch_head_sha.substring(0, 7) && (
-                      <span class="font-mono text-xs text-muted">
-                        {"→ "}
-                        {es.branch_head_sha.substring(0, 7)}
-                      </span>
-                    )}
-                </div>
-                <div class="mb-1">
-                  {es.is_drifted ? (
-                    <span class="text-[11px] font-medium text-warning">
-                      drifted
-                    </span>
-                  ) : es.deployed_sha ? (
-                    <span class="text-[11px] font-medium text-success">
-                      in sync
-                    </span>
-                  ) : null}
-                </div>
-
-                {/* Container:port + runtime info */}
-                <div class="flex flex-wrap items-center gap-x-2 text-[11px] text-muted">
-                  {typeof runtime?.["hostname"] === "string" && (
-                    <span class="font-mono">
-                      {(runtime["hostname"] as string).length > 12
-                        ? (runtime["hostname"] as string).substring(0, 12)
-                        : runtime["hostname"] as string}
-                      {runtime["port"] != null ? `:${runtime["port"]}` : ""}
-                    </span>
-                  )}
-                  {ports && ports.length > 0 && !runtime?.["port"] && (
-                    <span>
-                      {ports.map((p) => `:${p}`).join("/")}
-                    </span>
-                  )}
-                  {typeof backend?.["platform"] === "string" && (
-                    <span>{String(backend["platform"])}</span>
-                  )}
-                  {typeof runtime?.["uptime_seconds"] === "number" && (
-                    <span>
-                      up {formatUptime(runtime["uptime_seconds"] as number)}
-                    </span>
-                  )}
-                  {typeof backend?.["go_version"] === "string" && (
-                    <span>{String(backend["go_version"])}</span>
-                  )}
-                  {typeof frontend?.["version"] === "string" && (
-                    <span>v{String(frontend["version"])}</span>
-                  )}
-                  {typeof frontend?.["nodeVersion"] === "string" && (
-                    <span>{String(frontend["nodeVersion"])}</span>
-                  )}
-                  {typeof backend?.["build_time"] === "string" && (
-                    <span>built {timeAgo(String(backend["build_time"]))}</span>
-                  )}
-                </div>
-
-                {/* DB + resources */}
-                <div class="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted">
-                  {typeof database?.["server_version"] === "string" ? (
-                    <span>{String(database["server_version"])}</span>
-                  ) : typeof database?.["type"] === "string" ? (
-                    <span>{String(database["type"])}</span>
-                  ) : null}
-                  {typeof database?.["current_version"] === "number" && (
-                    <span>
-                      migration v{Number(database["current_version"])}
-                      {database["up_to_date"] === true ? "" : " (pending)"}
-                    </span>
-                  )}
-                  {!!vi?.["resources"] && typeof (vi["resources"] as Record<string, unknown>)?.["memory_alloc_mb"] === "number" && (
-                    <span>
-                      {((vi["resources"] as Record<string, unknown>)["memory_alloc_mb"] as number).toFixed(1)}MB
-                    </span>
-                  )}
-                  {!!vi?.["resources"] && typeof (vi["resources"] as Record<string, unknown>)?.["goroutines"] === "number" && (
-                    <span>
-                      {Number((vi["resources"] as Record<string, unknown>)["goroutines"])} gr
-                    </span>
-                  )}
-                  {envProbes && typeof envProbes.total === "number" && envProbes.total > 0 && (
-                    <span>
-                      {envProbes.connected}/{envProbes.total} probes
-                    </span>
-                  )}
-                </div>
-
-                {/* Container metrics + services */}
-                <div class="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted">
-                  {!!vi?.["container"] &&
-                    typeof (vi["container"] as Record<string, unknown>)?.["memory_usage_mb"] === "number" && (
-                      <span>
-                        container{" "}
-                        {((vi["container"] as Record<string, unknown>)["memory_usage_mb"] as number).toFixed(0)}MB
-                        {typeof (vi["container"] as Record<string, unknown>)?.["memory_limit_mb"] === "number" &&
-                          `/${((vi["container"] as Record<string, unknown>)["memory_limit_mb"] as number).toFixed(0)}MB`}
-                      </span>
-                    )}
-                  {(() => {
-                    const services = vi?.["services"] as Record<string, unknown> | undefined;
-                    if (!services) return null;
-                    return Object.entries(services).map(([name, svc]) => {
-                      const s = svc as Record<string, unknown> | undefined;
-                      if (!s) return null;
-                      const status = s["status"] as string;
-                      const svcName = (s["service"] as string) || name;
-                      const latency = typeof s["latency_ms"] === "number" ? s["latency_ms"] as number : null;
-                      const isOk = status === "ok";
-                      return (
-                        <span key={name} class={`inline-flex items-center gap-1 ${isOk ? "" : "text-failure font-medium"}`}>
-                          <span class={`inline-block h-1.5 w-1.5 rounded-full ${isOk ? "bg-success" : "bg-failure"}`} />
-                          {svcName}
-                          {latency !== null && <span>({latency}ms)</span>}
-                        </span>
-                      );
-                    });
-                  })()}
-                  {es.mcp_health_status != null && es.mcp_health_status > 0 && (
-                    <span class={`inline-flex items-center gap-1 ${es.mcp_health_status === 200 ? "" : "text-failure font-medium"}`}>
-                      <span class={`inline-block h-1.5 w-1.5 rounded-full ${es.mcp_health_status === 200 ? "bg-success" : "bg-failure"}`} />
-                      MCP
-                      {es.mcp_response_time_ms != null && <span>{es.mcp_response_time_ms}ms</span>}
-                    </span>
-                  )}
-                  {es.host_name && (
-                    <a
-                      href="/dashboard/hosts"
-                      class="inline-flex items-center gap-1 text-accent/80 hover:text-accent transition-colors"
-                    >
-                      <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="2" y="2" width="20" height="8" rx="2" />
-                        <rect x="2" y="14" width="20" height="8" rx="2" />
-                        <line x1="6" y1="6" x2="6.01" y2="6" />
-                        <line x1="6" y1="18" x2="6.01" y2="18" />
-                      </svg>
-                      {es.host_name}
-                      {es.host_ip && <span class="text-muted">({es.host_ip})</span>}
-                    </a>
-                  )}
-                </div>
-
-                {/* Build progress bar for running builds targeting this env */}
-                {(() => {
-                  const runningBuild = builds.find(
-                    (b) => b.status === "running" && b.jobs && b.jobs.length > 0 && (b.branch === env || (env === "production" && b.branch === "main")),
-                  ) ?? builds.find(
-                    (b) => b.status === "running" && b.jobs && b.jobs.length > 0,
-                  );
-                  if (!runningBuild?.jobs) return null;
-                  const total = runningBuild.jobs.length;
-                  const done = runningBuild.jobs.filter((j) =>
-                    j.status === "success" || j.status === "failure" || j.status === "cancelled" || j.status === "error" || j.status === "skipped"
-                  ).length;
-                  const pct = total > 0 ? (done / total) * 100 : 0;
-                  return (
-                    <div class="mt-2 flex items-center gap-2">
-                      <svg class="h-3 w-3 flex-shrink-0 animate-spin text-running" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-                        <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                      </svg>
-                      <div class="h-1 flex-1 rounded-full bg-running/20">
-                        <div
-                          class="h-1 rounded-full bg-running transition-all duration-500"
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                      <span class="text-[10px] text-muted">
-                        {done}/{total}
-                        {runningBuild.started_at && ` \u00b7 ${formatElapsed(runningBuild.started_at)}`}
-                      </span>
+                  <div class="b-name">
+                    <div>
+                      <b>api-service</b>
+                      <small>#2847 &middot; deploy pipeline</small>
                     </div>
-                  );
-                })()}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Build Strip */}
-        {mainBuild && (
-          <div class="border-t border-border px-5 py-2.5">
-            <div class="flex items-center gap-3 text-xs">
-              <span class={buildStatusColor(mainBuild.status)}>
-                <BuildStatusIcon status={mainBuild.status} />
-              </span>
-              {mainBuild.provider_type && (
-                <CIProviderIcon provider={mainBuild.provider_type} size={14} />
-              )}
-              <span class="font-medium text-text">{mainBuild.branch}</span>
-              <span class="font-mono text-muted">
-                {mainBuild.commit_sha?.substring(0, 7)}
-              </span>
-              <span class="min-w-0 flex-1 truncate text-muted">
-                "{mainBuild.commit_message}"
-              </span>
-              {mainBuild.created_at && (
-                <span class="text-muted">{timeAgo(mainBuild.created_at)}</span>
-              )}
-              {mainBuild.duration_ms != null ? (
-                <span class="text-muted">
-                  {formatDuration(mainBuild.duration_ms)}
-                </span>
-              ) : mainBuild.status === "running" && mainBuild.started_at ? (
-                <span class="text-running">
-                  {formatElapsed(mainBuild.started_at)} running
-                </span>
-              ) : null}
-              {mainBuild.provider_url && (
-                <a
-                  href={mainBuild.provider_url}
-                  target="_blank"
-                  rel="noopener"
-                  class="text-muted hover:text-accent"
-                  onClick$={(e: Event) => e.stopPropagation()}
-                >
-                  ↗
-                </a>
-              )}
-            </div>
-
-            {/* Job pipeline */}
-            {mainBuild.jobs && mainBuild.jobs.length > 0 && (
-              <div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
-                {mainBuild.jobs.map((job) => (
-                  <span key={job.id} class="flex items-center gap-1">
-                    <span class={buildStatusColor(job.status)}>
-                      <BuildStatusIcon status={job.status} />
-                    </span>
-                    <span class="text-muted">{job.name}</span>
-                    {job.duration_ms != null && (
-                      <span class="text-muted">
-                        {formatDuration(job.duration_ms)}
-                      </span>
-                    )}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {/* Build progress bar */}
-            {mainBuild.status === "running" && mainBuild.jobs && mainBuild.jobs.length > 0 && (() => {
-              const total = mainBuild.jobs.length;
-              const done = mainBuild.jobs.filter((j) =>
-                j.status === "success" || j.status === "failure" || j.status === "cancelled" || j.status === "error" || j.status === "skipped"
-              ).length;
-              const pct = total > 0 ? (done / total) * 100 : 0;
-              return (
-                <div class="mt-1.5 flex items-center gap-2">
-                  <div class="h-1.5 flex-1 rounded-full bg-running/20">
-                    <div
-                      class="h-1.5 rounded-full bg-running transition-all duration-500"
-                      style={{ width: `${pct}%` }}
-                    />
                   </div>
-                  <span class="text-[11px] text-muted">
-                    {done}/{total} jobs
-                    {mainBuild.started_at && ` \u00b7 ${formatElapsed(mainBuild.started_at)}`}
-                  </span>
+                  <div class="b-branch">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" /></svg>
+                    main <span class="sha">a3f8c21</span>
+                  </div>
+                  <div class="prov gh">GH</div>
+                  <div class="b-dur">1m 12s</div>
+                  <div class="b-when">2m ago</div>
+                  <div><span class="pill ok">push</span></div>
+                  <button class="icon-btn">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+                  </button>
                 </div>
-              );
-            })()}
-          </div>
-        )}
 
-        {/* Probe Agents */}
-        {probes && probes.regions && probes.regions.length > 0 && (
-          <div class="border-t border-border px-5 py-2.5">
-            <div class="flex items-center gap-3 text-xs">
-              <span class="text-[11px] font-semibold uppercase tracking-wider text-muted">
-                Probes
-              </span>
-              <div class="flex items-center gap-2">
-                {probes.regions.map((r) => (
-                  <span
-                    key={r.slug}
-                    class="flex items-center gap-1"
-                    title={`${r.name}${r.probe_version ? ` (${r.probe_version})` : ""}${r.uptime_seconds ? ` up ${formatUptime(r.uptime_seconds)}` : ""}`}
-                  >
-                    <span
-                      class={`inline-block h-1.5 w-1.5 rounded-full ${r.connected ? "bg-success" : "bg-failure"}`}
-                    />
-                    <span class="text-muted">{r.slug}</span>
-                  </span>
-                ))}
+                {/* Row 2 - running */}
+                <div class="brow">
+                  <div class="ico run">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
+                  </div>
+                  <div class="b-name">
+                    <div>
+                      <b>frontend</b>
+                      <small>#1204 &middot; test + build</small>
+                    </div>
+                  </div>
+                  <div class="b-branch">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" /></svg>
+                    feat/dark-mode <span class="sha">e91b4f0</span>
+                  </div>
+                  <div class="prov gh">GH</div>
+                  <div class="b-dur" style={{ color: "var(--info)" }}>42s...</div>
+                  <div class="b-when">just now</div>
+                  <div><span class="pill run">push</span></div>
+                  <button class="icon-btn">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+                  </button>
+                </div>
+
+                {/* Row 3 - failure */}
+                <div class="brow">
+                  <div class="ico fail">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                  </div>
+                  <div class="b-name">
+                    <div>
+                      <b>worker</b>
+                      <small>#892 &middot; cargo test</small>
+                    </div>
+                  </div>
+                  <div class="b-branch">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" /></svg>
+                    main <span class="sha">7d2e1a9</span>
+                  </div>
+                  <div class="prov tv">TV</div>
+                  <div class="b-dur">2m 38s</div>
+                  <div class="b-when">14m ago</div>
+                  <div><span class="pill fail">push</span></div>
+                  <button class="icon-btn">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+                  </button>
+                </div>
+
+                {/* Row 4 - success */}
+                <div class="brow">
+                  <div class="ico ok">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                  </div>
+                  <div class="b-name">
+                    <div>
+                      <b>docs-site</b>
+                      <small>#421 &middot; build + deploy</small>
+                    </div>
+                  </div>
+                  <div class="b-branch">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" /></svg>
+                    main <span class="sha">b4c09e3</span>
+                  </div>
+                  <div class="prov cc">CC</div>
+                  <div class="b-dur">48s</div>
+                  <div class="b-when">23m ago</div>
+                  <div><span class="pill ok">push</span></div>
+                  <button class="icon-btn">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+                  </button>
+                </div>
+
+                {/* Row 5 - queued */}
+                <div class="brow">
+                  <div class="ico queue">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+                  </div>
+                  <div class="b-name">
+                    <div>
+                      <b>mobile-ios</b>
+                      <small>#156 &middot; xcode build</small>
+                    </div>
+                  </div>
+                  <div class="b-branch">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" /></svg>
+                    release/2.1 <span class="sha">f0a3b78</span>
+                  </div>
+                  <div class="prov gh">GH</div>
+                  <div class="b-dur" style={{ color: "var(--text-3)" }}>queued</div>
+                  <div class="b-when">1m ago</div>
+                  <div><span class="pill plain">tag</span></div>
+                  <button class="icon-btn">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+                  </button>
+                </div>
+
+                {/* Row 6 - success */}
+                <div class="brow">
+                  <div class="ico ok">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                  </div>
+                  <div class="b-name">
+                    <div>
+                      <b>api-service</b>
+                      <small>#2846 &middot; test suite</small>
+                    </div>
+                  </div>
+                  <div class="b-branch">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" /></svg>
+                    fix/auth-flow <span class="sha">c28d1e7</span>
+                  </div>
+                  <div class="prov gh">GH</div>
+                  <div class="b-dur">1m 44s</div>
+                  <div class="b-when">38m ago</div>
+                  <div><span class="pill ok">PR</span></div>
+                  <button class="icon-btn">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+                  </button>
+                </div>
+
+                {/* Row 7 - running */}
+                <div class="brow">
+                  <div class="ico run">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
+                  </div>
+                  <div class="b-name">
+                    <div>
+                      <b>worker</b>
+                      <small>#893 &middot; integration tests</small>
+                    </div>
+                  </div>
+                  <div class="b-branch">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" /></svg>
+                    main <span class="sha">0e4f2d1</span>
+                  </div>
+                  <div class="prov tv">TV</div>
+                  <div class="b-dur" style={{ color: "var(--info)" }}>1m 08s...</div>
+                  <div class="b-when">1m ago</div>
+                  <div><span class="pill run">push</span></div>
+                  <button class="icon-btn">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+                  </button>
+                </div>
               </div>
-              <span class="text-muted">
-                {probes.connected}/{probes.total} connected
-              </span>
-              {probes.regions[0]?.probe_version && (
-                <span class="font-mono text-muted">
-                  {probes.regions[0].probe_version}
-                </span>
-              )}
             </div>
           </div>
-        )}
+
+          {/* Hosts panel */}
+          <div class="panel">
+            <div class="panel-head">
+              <h3>
+                Hosts
+                <span class="cnt">5</span>
+              </h3>
+              <div class="tools">
+                <span class="tab" aria-selected="true">Overview</span>
+                <span class="tab">Metrics</span>
+              </div>
+            </div>
+            <div class="panel-body p0">
+              <div class="hosts">
+                <div class="hrow head">
+                  <span>Host</span>
+                  <span>CPU</span>
+                  <span>Memory</span>
+                  <span>Disk</span>
+                  <span>Uptime</span>
+                  <span>Status</span>
+                </div>
+
+                <div class="hrow">
+                  <div class="h-name">
+                    <span class="h-led on"></span>
+                    <div>
+                      <b>prod-api-1</b>
+                      <small>172.31.4.12</small>
+                    </div>
+                  </div>
+                  <div class="metric-cell">
+                    <div class="mtop"><span>CPU</span> <b>34%</b></div>
+                    <div class="track"><div style={{ width: "34%" }}></div></div>
+                  </div>
+                  <div class="metric-cell">
+                    <div class="mtop"><span>MEM</span> <b>68%</b></div>
+                    <div class="track"><div style={{ width: "68%" }}></div></div>
+                  </div>
+                  <div class="metric-cell">
+                    <div class="mtop"><span>DISK</span> <b>42%</b></div>
+                    <div class="track"><div style={{ width: "42%" }}></div></div>
+                  </div>
+                  <div class="b-dur">14d 6h</div>
+                  <div><span class="pill ok">healthy</span></div>
+                </div>
+
+                <div class="hrow">
+                  <div class="h-name">
+                    <span class="h-led on"></span>
+                    <div>
+                      <b>prod-api-2</b>
+                      <small>172.31.4.13</small>
+                    </div>
+                  </div>
+                  <div class="metric-cell">
+                    <div class="mtop"><span>CPU</span> <b>28%</b></div>
+                    <div class="track"><div style={{ width: "28%" }}></div></div>
+                  </div>
+                  <div class="metric-cell">
+                    <div class="mtop"><span>MEM</span> <b>55%</b></div>
+                    <div class="track"><div style={{ width: "55%" }}></div></div>
+                  </div>
+                  <div class="metric-cell">
+                    <div class="mtop"><span>DISK</span> <b>39%</b></div>
+                    <div class="track"><div style={{ width: "39%" }}></div></div>
+                  </div>
+                  <div class="b-dur">14d 6h</div>
+                  <div><span class="pill ok">healthy</span></div>
+                </div>
+
+                <div class="hrow">
+                  <div class="h-name">
+                    <span class="h-led warn"></span>
+                    <div>
+                      <b>worker-1</b>
+                      <small>172.31.5.20</small>
+                    </div>
+                  </div>
+                  <div class="metric-cell warn">
+                    <div class="mtop"><span>CPU</span> <b>82%</b></div>
+                    <div class="track"><div style={{ width: "82%" }}></div></div>
+                  </div>
+                  <div class="metric-cell warn">
+                    <div class="mtop"><span>MEM</span> <b>78%</b></div>
+                    <div class="track"><div style={{ width: "78%" }}></div></div>
+                  </div>
+                  <div class="metric-cell">
+                    <div class="mtop"><span>DISK</span> <b>61%</b></div>
+                    <div class="track"><div style={{ width: "61%" }}></div></div>
+                  </div>
+                  <div class="b-dur">7d 12h</div>
+                  <div><span class="pill warn">warning</span></div>
+                </div>
+
+                <div class="hrow">
+                  <div class="h-name">
+                    <span class="h-led on"></span>
+                    <div>
+                      <b>staging-1</b>
+                      <small>172.31.6.8</small>
+                    </div>
+                  </div>
+                  <div class="metric-cell">
+                    <div class="mtop"><span>CPU</span> <b>12%</b></div>
+                    <div class="track"><div style={{ width: "12%" }}></div></div>
+                  </div>
+                  <div class="metric-cell">
+                    <div class="mtop"><span>MEM</span> <b>41%</b></div>
+                    <div class="track"><div style={{ width: "41%" }}></div></div>
+                  </div>
+                  <div class="metric-cell">
+                    <div class="mtop"><span>DISK</span> <b>28%</b></div>
+                    <div class="track"><div style={{ width: "28%" }}></div></div>
+                  </div>
+                  <div class="b-dur">21d 3h</div>
+                  <div><span class="pill ok">healthy</span></div>
+                </div>
+
+                <div class="hrow">
+                  <div class="h-name">
+                    <span class="h-led off"></span>
+                    <div>
+                      <b>build-runner-3</b>
+                      <small>172.31.7.15</small>
+                    </div>
+                  </div>
+                  <div class="metric-cell">
+                    <div class="mtop"><span>CPU</span> <b>--</b></div>
+                    <div class="track"><div style={{ width: "0%" }}></div></div>
+                  </div>
+                  <div class="metric-cell">
+                    <div class="mtop"><span>MEM</span> <b>--</b></div>
+                    <div class="track"><div style={{ width: "0%" }}></div></div>
+                  </div>
+                  <div class="metric-cell">
+                    <div class="mtop"><span>DISK</span> <b>--</b></div>
+                    <div class="track"><div style={{ width: "0%" }}></div></div>
+                  </div>
+                  <div class="b-dur">--</div>
+                  <div><span class="pill fail">offline</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Right column ── */}
+        <div>
+          {/* Incidents panel */}
+          <div class="panel">
+            <div class="panel-head">
+              <h3>
+                Incidents
+                <span class="cnt">3 open</span>
+              </h3>
+              <a href="/dashboard/incidents" class="btn btn-ghost" style={{ fontSize: "12px", padding: "4px 8px" }}>View all</a>
+            </div>
+            <div class="panel-body p0">
+              <div class="ifeed">
+                <div class="iitem">
+                  <span class="mark active"></span>
+                  <div class="body">
+                    <b>Memory threshold exceeded</b>
+                    <div class="meta">worker &middot; production &middot; 82% &gt; 80%</div>
+                  </div>
+                  <span class="time">4m ago</span>
+                </div>
+                <div class="iitem">
+                  <span class="mark active"></span>
+                  <div class="body">
+                    <b>Build failure rate spike</b>
+                    <div class="meta">api-service &middot; main branch &middot; 3 consecutive failures</div>
+                  </div>
+                  <span class="time">18m ago</span>
+                </div>
+                <div class="iitem">
+                  <span class="mark warning"></span>
+                  <div class="body">
+                    <b>High response latency</b>
+                    <div class="meta">frontend &middot; staging &middot; p95 &gt; 800ms</div>
+                  </div>
+                  <span class="time">1h ago</span>
+                </div>
+                <div class="iitem">
+                  <span class="mark resolved"></span>
+                  <div class="body">
+                    <b>Disk usage warning</b>
+                    <div class="meta">prod-api-1 &middot; resolved automatically</div>
+                  </div>
+                  <span class="time">3h ago</span>
+                </div>
+                <div class="iitem">
+                  <span class="mark resolved"></span>
+                  <div class="body">
+                    <b>Health check timeout</b>
+                    <div class="meta">docs-site &middot; production &middot; recovered after 2m</div>
+                  </div>
+                  <span class="time">6h ago</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Probe regions panel */}
+          <div class="panel">
+            <div class="panel-head">
+              <h3>
+                Probe regions
+                <span class="cnt">5</span>
+              </h3>
+              <div><span class="pill ok">4/5 connected</span></div>
+            </div>
+            <div class="panel-body p0">
+              <div class="probe-list">
+                <div class="prow">
+                  <span class="led on"></span>
+                  <div class="name">
+                    <b>us-east-1</b>
+                    <small>N. Virginia</small>
+                  </div>
+                  <span class="lat">12ms</span>
+                  <span class="up">up 14d</span>
+                </div>
+                <div class="prow">
+                  <span class="led on"></span>
+                  <div class="name">
+                    <b>eu-west-1</b>
+                    <small>Ireland</small>
+                  </div>
+                  <span class="lat">34ms</span>
+                  <span class="up">up 14d</span>
+                </div>
+                <div class="prow">
+                  <span class="led on"></span>
+                  <div class="name">
+                    <b>ap-south-1</b>
+                    <small>Mumbai</small>
+                  </div>
+                  <span class="lat">89ms</span>
+                  <span class="up">up 7d</span>
+                </div>
+                <div class="prow">
+                  <span class="led on"></span>
+                  <div class="name">
+                    <b>us-west-2</b>
+                    <small>Oregon</small>
+                  </div>
+                  <span class="lat">28ms</span>
+                  <span class="up">up 21d</span>
+                </div>
+                <div class="prow">
+                  <span class="led" style={{ background: "var(--text-3)" }}></span>
+                  <div class="name">
+                    <b>ap-northeast-1</b>
+                    <small>Tokyo</small>
+                  </div>
+                  <span class="lat" style={{ color: "var(--text-3)" }}>--</span>
+                  <span class="lat" style={{ color: "var(--danger)", fontSize: "11px", fontFamily: "var(--mono)" }}>offline</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Environment drift panel */}
+          <div class="panel">
+            <div class="panel-head">
+              <h3>
+                Environment drift
+                <span class="cnt">2</span>
+              </h3>
+            </div>
+            <div class="drift-panel">
+              <div class="drift-item">
+                <div class="di-top">
+                  <b>api-service</b>
+                  <span class="dtag">3 commits behind</span>
+                </div>
+                <div class="di-grid">
+                  <div>
+                    <small>Production</small>
+                    <span>a3f8c21</span>
+                  </div>
+                  <div>
+                    <small>HEAD</small>
+                    <span>e7b2d04</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="drift-item">
+                <div class="di-top">
+                  <b>worker</b>
+                  <span class="dtag">1 commit behind</span>
+                </div>
+                <div class="di-grid">
+                  <div>
+                    <small>Production</small>
+                    <span>7d2e1a9</span>
+                  </div>
+                  <div>
+                    <small>HEAD</small>
+                    <span>0e4f2d1</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="drift-item">
+                <div class="di-top">
+                  <b>frontend</b>
+                  <span class="dtag ok">in sync</span>
+                </div>
+                <div class="di-grid">
+                  <div>
+                    <small>Production</small>
+                    <span>b91c4e2</span>
+                  </div>
+                  <div>
+                    <small>HEAD</small>
+                    <span>b91c4e2</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* MCP activity panel */}
+          <div class="panel">
+            <div class="panel-head">
+              <h3>
+                MCP activity
+                <span class="cnt">live</span>
+              </h3>
+              <a href="/dashboard/mcp" class="btn btn-ghost" style={{ fontSize: "12px", padding: "4px 8px" }}>Manage</a>
+            </div>
+            <div class="panel-body">
+              <div class="logtail">
+                <div class="l"><span class="ts">14:32:01</span> <span class="lv o">MCP</span> <span>tool_call fleet_status &rarr; 200 (12ms)</span></div>
+                <div class="l"><span class="ts">14:31:48</span> <span class="lv i">INFO</span> <span>probe heartbeat us-east-1 connected</span></div>
+                <div class="l"><span class="ts">14:31:22</span> <span class="lv o">MCP</span> <span>tool_call build_list project=api-service &rarr; 200</span></div>
+                <div class="l"><span class="ts">14:30:55</span> <span class="lv w">WARN</span> <span>probe ap-northeast-1 missed 3 heartbeats</span></div>
+                <div class="l"><span class="ts">14:30:12</span> <span class="lv o">MCP</span> <span>tool_call drift_check &rarr; 200 (34ms)</span></div>
+                <div class="l"><span class="ts">14:29:44</span> <span class="lv i">INFO</span> <span>build #2847 api-service completed success</span></div>
+                <div class="l"><span class="ts">14:29:01</span> <span class="lv o">MCP</span> <span>tool_call incident_list limit=10 &rarr; 200</span></div>
+                <div class="l"><span class="ts">14:28:30</span> <span class="lv e">ERR</span> <span>probe tokyo health check timeout after 5s</span></div>
+                <div class="l"><span class="ts">14:28:02</span> <span class="lv o">MCP</span> <span>tool_call host_metrics host=worker-1 &rarr; 200</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
-    );
-  },
-);
-
-// ─── Incidents Banner ─────────────────────────────
-
-const BANNER_PREVIEW = 5;
-const BANNER_PAGE_SIZE = 10;
-
-interface IncidentsBannerProps {
-  incidents: ResourceIncident[];
-}
-
-const IncidentsBanner = component$<IncidentsBannerProps>(({ incidents }) => {
-  const collapsed = useSignal(false);
-  const expanded = useSignal(false); // preview (5) vs paginated
-  const page = useSignal(1);
-
-  if (incidents.length === 0) return null;
-
-  const openIncidents = incidents.filter((i) => !i.resolved_at && !i.ignored);
-  const resolvedIncidents = incidents.filter((i) => !!i.resolved_at);
-  const hasOpen = openIncidents.length > 0;
-
-  const totalPages = Math.ceil(incidents.length / BANNER_PAGE_SIZE);
-  const pageIncidents = incidents.slice(
-    (page.value - 1) * BANNER_PAGE_SIZE,
-    page.value * BANNER_PAGE_SIZE,
-  );
-  const previewIncidents = incidents.slice(0, BANNER_PREVIEW);
-  const displayIncidents = expanded.value ? pageIncidents : previewIncidents;
-  const remaining = incidents.length - BANNER_PREVIEW;
-
-  return (
-    <div class={`mb-4 rounded-xl border ${hasOpen ? "border-failure/25 bg-gradient-to-r from-failure/10 to-failure/[0.03]" : "border-success/25 bg-gradient-to-r from-success/10 to-success/[0.03]"}`}>
-      {/* Header row */}
-      <button
-        class="flex w-full items-center justify-between px-4 py-2.5 text-left"
-        onClick$={() => { collapsed.value = !collapsed.value; }}
-      >
-        <div class="flex items-center gap-2.5">
-          {hasOpen ? (
-            <>
-              <span class="inline-block h-2 w-2 animate-pulse rounded-full bg-failure" />
-              <span class="text-sm font-semibold text-failure">
-                {openIncidents.length} Open Incident{openIncidents.length !== 1 ? "s" : ""}
-              </span>
-            </>
-          ) : (
-            <>
-              <span class="inline-block h-2 w-2 rounded-full bg-success" />
-              <span class="text-sm font-semibold text-success">
-                {resolvedIncidents.length} Resolved
-              </span>
-            </>
-          )}
-          {hasOpen && resolvedIncidents.length > 0 && (
-            <span class="text-xs text-muted">+ {resolvedIncidents.length} resolved</span>
-          )}
-          <span class="text-xs text-muted">· {incidents.length} total</span>
-        </div>
-        <svg
-          class="h-4 w-4 text-muted transition-transform"
-          style={{ transform: collapsed.value ? "rotate(0deg)" : "rotate(180deg)" }}
-          viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-          stroke-linecap="round" stroke-linejoin="round"
-        >
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
-      </button>
-
-      {!collapsed.value && (
-        <div class={`border-t ${hasOpen ? "border-failure/20" : "border-success/20"}`}>
-          {/* Incident rows */}
-          <div class="divide-y divide-border/30 px-4 py-1">
-            {displayIncidents.map((inc) => {
-              const isResolved = !!inc.resolved_at;
-              return (
-                <div
-                  key={inc.id}
-                  class={`flex items-center gap-3 py-2 text-xs ${isResolved ? "opacity-60" : ""}`}
-                >
-                  <span class={`inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full ${isResolved ? "bg-success" : "bg-failure animate-pulse"}`} />
-                  <span class="font-medium text-text truncate max-w-[140px]">{inc.project_name}</span>
-                  <span class="rounded bg-border/50 px-1.5 py-0.5 text-[10px] font-medium uppercase text-muted shrink-0">
-                    {inc.env}
-                  </span>
-                  <span class="text-muted truncate">{inc.message}</span>
-                  {isResolved ? (
-                    <span class="ml-auto flex items-center gap-1 shrink-0 text-success">
-                      <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-                      {timeAgo(inc.resolved_at!)}
-                    </span>
-                  ) : (
-                    <span class="ml-auto shrink-0 text-muted">{timeAgo(inc.created_at)}</span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Footer: expand / pagination / collapse */}
-          <div class={`flex items-center justify-between border-t px-4 py-2 ${hasOpen ? "border-failure/15" : "border-success/15"}`}>
-            {!expanded.value ? (
-              <>
-                <a href="/dashboard/incidents" class="text-xs text-accent hover:underline">
-                  View all incidents →
-                </a>
-                {remaining > 0 && (
-                  <button
-                    class="text-xs text-muted hover:text-text transition-colors"
-                    onClick$={() => { expanded.value = true; page.value = 1; }}
-                  >
-                    Show {remaining} more
-                  </button>
-                )}
-              </>
-            ) : (
-              <>
-                {/* Pagination controls */}
-                <div class="flex items-center gap-2">
-                  <button
-                    class="flex h-6 w-6 items-center justify-center rounded border border-border/60 text-muted transition-colors hover:border-border-hover hover:text-text disabled:pointer-events-none disabled:opacity-30"
-                    disabled={page.value === 1}
-                    onClick$={() => { if (page.value > 1) page.value--; }}
-                  >
-                    <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
-                  </button>
-                  <span class="text-xs text-muted">
-                    {page.value} / {totalPages}
-                  </span>
-                  <button
-                    class="flex h-6 w-6 items-center justify-center rounded border border-border/60 text-muted transition-colors hover:border-border-hover hover:text-text disabled:pointer-events-none disabled:opacity-30"
-                    disabled={page.value >= totalPages}
-                    onClick$={() => { if (page.value < totalPages) page.value++; }}
-                  >
-                    <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
-                  </button>
-                </div>
-                <button
-                  class="text-xs text-muted hover:text-text transition-colors"
-                  onClick$={() => { expanded.value = false; page.value = 1; }}
-                >
-                  Show less
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 });

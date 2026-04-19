@@ -1,18 +1,15 @@
 import { component$, useVisibleTask$ } from "@builder.io/qwik";
-import { useNavigate, useLocation } from "@builder.io/qwik-city";
 import { setToken } from "~/lib/api";
 
 export default component$(() => {
-  const nav = useNavigate();
-  const loc = useLocation();
-
   useVisibleTask$(() => {
-    const token = loc.url.searchParams.get("token");
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("token");
     if (token) {
       setToken(token);
-      nav("/dashboard");
+      window.location.href = "/dashboard";
     } else {
-      nav("/auth/login");
+      window.location.href = "/auth/login";
     }
   });
 

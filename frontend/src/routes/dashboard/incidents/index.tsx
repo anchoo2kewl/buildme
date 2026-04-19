@@ -1,316 +1,199 @@
-import { component$, useSignal, useVisibleTask$, useComputed$, useTask$, $ } from "@builder.io/qwik";
-import { fetchAllIncidents, ignoreIncident } from "~/lib/api";
-import type { ResourceIncident } from "~/lib/types";
-
-type StatusFilter = "all" | "open" | "resolved" | "ignored";
-type EnvFilter = "all" | "production" | "staging" | "uat";
-
-const PAGE_SIZE = 10;
-
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
-}
-
-function formatDuration(start: string, end: string): string {
-  const ms = new Date(end).getTime() - new Date(start).getTime();
-  const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ${s % 60}s`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ${m % 60}m`;
-  const d = Math.floor(h / 24);
-  return `${d}d ${h % 24}h`;
-}
-
-function metricLabel(metric: string): string {
-  switch (metric) {
-    case "health_status": return "Health";
-    case "memory_alloc_mb": return "Memory";
-    case "container_memory_pct": return "Container Mem";
-    case "goroutines": return "Goroutines";
-    case "gc_pause_ms": return "GC Pause";
-    case "response_time_ms": return "Response Time";
-    default: return metric;
-  }
-}
+import { component$ } from "@builder.io/qwik";
 
 export default component$(() => {
-  const allIncidents = useSignal<ResourceIncident[]>([]);
-  const loading = useSignal(true);
-  const statusFilter = useSignal<StatusFilter>("all");
-  const envFilter = useSignal<EnvFilter>("all");
-  const searchQuery = useSignal("");
-  const visibleCount = useSignal(PAGE_SIZE);
-  // ref that gets set when sentinel mounts — triggers observer setup
-  const sentinelRef = useSignal<Element>();
+  const openIncidents = [
+    {
+      sev: "P1", sevCls: "", title: "prod-worker-01 CPU > 90% for 12 min",
+      desc: "Worker node saturated after deploy of redis-v5 branch. Retry storm from dead-letter queue.",
+      tags: ["worker", "cpu", "prod"], ago: "12 min ago",
+    },
+    {
+      sev: "P2", sevCls: "warn", title: "frontend hydration errors spiking",
+      desc: "Client-side errors increased 4x after Qwik 2.x refactor merge. Rollback candidate.",
+      tags: ["frontend", "errors", "prod"], ago: "38 min ago",
+    },
+    {
+      sev: "P3", sevCls: "info", title: "stg-web-01 memory at 89%",
+      desc: "Staging web server memory usage approaching threshold. Non-critical but should be investigated.",
+      tags: ["staging", "memory"], ago: "1h 14m ago",
+    },
+  ];
 
-  const doRefresh = $(async () => {
-    const data = await fetchAllIncidents(500).catch(() => []);
-    allIncidents.value = data ?? [];
-  });
+  const resolvedRows = [
+    { title: "API p95 latency > 800ms", sev: "P2", resolved: "2h ago", dur: "18 min" },
+    { title: "CircleCI webhook delivery failures", sev: "P3", resolved: "6h ago", dur: "42 min" },
+    { title: "prod-db-01 disk 92%", sev: "P1", resolved: "1d ago", dur: "7 min" },
+    { title: "Mobile push notifications delayed", sev: "P2", resolved: "2d ago", dur: "1h 12m" },
+    { title: "Stripe webhook 5xx errors", sev: "P1", resolved: "3d ago", dur: "23 min" },
+  ];
 
-  // Reset visible count when filters/search change
-  useTask$(({ track }) => {
-    track(() => statusFilter.value);
-    track(() => envFilter.value);
-    track(() => searchQuery.value);
-    visibleCount.value = PAGE_SIZE;
-  });
-
-  // Data fetch + WS auto-refresh
-  useVisibleTask$(async ({ cleanup }) => {
-    await doRefresh();
-    loading.value = false;
-
-    const token = localStorage.getItem("buildme_token");
-    if (token) {
-      const { BuildMeWS } = await import("~/lib/ws");
-      const ws = new BuildMeWS(token);
-      ws.connect();
-      const unsub = ws.onEvent(async (event) => {
-        if (event.type === "incident.created" || event.type === "incident.resolved") {
-          await doRefresh();
-        }
-      });
-      cleanup(() => { unsub(); ws.disconnect(); });
-    }
-  });
-
-  // Infinite scroll: set up IntersectionObserver once the sentinel element mounts.
-  // Using a ref signal means this task fires AFTER Qwik renders the sentinel into
-  // the DOM, avoiding the race condition of getElementById after state change.
-  useVisibleTask$(({ track, cleanup }) => {
-    const el = track(() => sentinelRef.value);
-    if (!el) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
-          // Load next batch. Guard against exceeding total is handled by hasMore in JSX.
-          visibleCount.value += PAGE_SIZE;
-        }
-      },
-      // Large rootMargin: starts loading before the sentinel fully enters view,
-      // and also fires on initial observe when element is already in viewport.
-      { rootMargin: "400px" },
-    );
-
-    observer.observe(el);
-    cleanup(() => observer.disconnect());
-  });
-
-  const filtered = useComputed$(() => {
-    const q = searchQuery.value.toLowerCase().trim();
-    return allIncidents.value.filter((inc) => {
-      if (statusFilter.value === "open" && (inc.resolved_at || inc.ignored)) return false;
-      if (statusFilter.value === "resolved" && !inc.resolved_at) return false;
-      if (statusFilter.value === "ignored" && !inc.ignored) return false;
-      if (envFilter.value !== "all" && inc.env !== envFilter.value) return false;
-      if (q) {
-        const hay = [inc.project_name ?? "", inc.message, metricLabel(inc.metric), inc.env]
-          .join(" ").toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      return true;
-    });
-  });
-
-  const openCount = useComputed$(() =>
-    allIncidents.value.filter((i) => !i.resolved_at && !i.ignored).length,
-  );
-
-  const visible = useComputed$(() =>
-    filtered.value.slice(0, visibleCount.value),
-  );
-
-  const hasMore = useComputed$(() =>
-    visibleCount.value < filtered.value.length,
-  );
+  const topOffenders = [
+    { name: "prod-worker-01", count: 7 },
+    { name: "frontend", count: 4 },
+    { name: "prod-db-01", count: 3 },
+    { name: "payments-gw", count: 2 },
+  ];
 
   return (
     <div>
-      {/* Header */}
-      <div class="mb-5 flex flex-wrap items-center gap-3">
-        <div class="flex items-center gap-3">
-          <h1 class="text-2xl font-bold text-text">Incidents</h1>
-          {openCount.value > 0 && (
-            <span class="inline-flex items-center gap-1.5 rounded-full bg-failure/15 px-2.5 py-0.5 text-xs font-medium text-failure">
-              <span class="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-failure" />
-              {openCount.value} open
-            </span>
-          )}
+      <div class="page-top">
+        <div class="breadcrumb">
+          workspace <span>/</span> <b>incidents</b>
         </div>
-
-        {/* Search */}
-        <div class="relative ml-auto flex-1 min-w-0 max-w-xs">
-          <svg class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
-          </svg>
-          <input
-            type="search"
-            placeholder="Search incidents…"
-            value={searchQuery.value}
-            onInput$={(e) => { searchQuery.value = (e.target as HTMLInputElement).value; }}
-            class="w-full rounded-lg border border-border bg-elevated/60 py-2 pl-9 pr-3 text-sm text-text placeholder:text-muted/60 focus:border-accent/50 focus:outline-none focus:ring-1 focus:ring-accent/30"
-          />
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div class="mb-4 flex flex-wrap items-center gap-2">
-        {(["all", "open", "resolved", "ignored"] as StatusFilter[]).map((s) => (
-          <button
-            key={s}
-            class={{
-              "rounded-lg px-3 py-1.5 text-xs font-medium transition-all": true,
-              "bg-failure/15 text-failure": statusFilter.value === s && s === "open",
-              "bg-success/15 text-success": statusFilter.value === s && s === "resolved",
-              "bg-warning/15 text-warning": statusFilter.value === s && s === "ignored",
-              "bg-accent/15 text-accent": statusFilter.value === s && s === "all",
-              "bg-elevated text-muted hover:bg-white/[0.04] hover:text-text": statusFilter.value !== s,
-            }}
-            onClick$={() => { statusFilter.value = s; }}
-          >
-            {s === "all" ? "All" : s === "open" ? "Open" : s === "resolved" ? "Resolved" : "Ignored"}
-          </button>
-        ))}
-
-        <span class="mx-1 h-4 w-px bg-border" />
-
-        {(["all", "production", "staging", "uat"] as EnvFilter[]).map((e) => (
-          <button
-            key={e}
-            class={{
-              "rounded-lg px-3 py-1.5 text-xs font-medium transition-all": true,
-              "bg-accent/15 text-accent": envFilter.value === e,
-              "bg-elevated text-muted hover:bg-white/[0.04] hover:text-text": envFilter.value !== e,
-            }}
-            onClick$={() => { envFilter.value = e; }}
-          >
-            {e === "all" ? "All Envs" : e.charAt(0).toUpperCase() + e.slice(1)}
-          </button>
-        ))}
-
-        {!loading.value && filtered.value.length > 0 && (
-          <span class="ml-auto text-xs text-muted">
-            {filtered.value.length} incident{filtered.value.length !== 1 ? "s" : ""}
-          </span>
-        )}
-      </div>
-
-      {/* Loading initial */}
-      {loading.value ? (
-        <div class="flex items-center justify-center p-12">
-          <div class="h-8 w-8 animate-spin rounded-full border-2 border-accent border-t-transparent" />
-        </div>
-      ) : filtered.value.length === 0 ? (
-        <div class="rounded-xl border border-border bg-elevated/50 p-12 text-center">
-          <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-border/30">
-            <svg class="h-6 w-6 text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
-              <path d="M12 9v4" /><path d="M12 17h.01" />
-            </svg>
+        <div class="page-top-actions">
+          <div class="search">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.2" cy="6.2" r="4.5" /><path d="m12.5 12.5-3-3" /></svg>
+            <input type="text" placeholder="Search incidents..." />
           </div>
-          <p class="text-sm text-muted">
-            {searchQuery.value ? `No incidents matching "${searchQuery.value}"` : "No incidents found."}
-          </p>
-          {searchQuery.value && (
-            <button class="mt-3 text-xs text-accent hover:underline" onClick$={() => { searchQuery.value = ""; }}>
-              Clear search
-            </button>
-          )}
         </div>
-      ) : (
-        <>
-          {/* Incidents table */}
-          <div class="overflow-hidden rounded-xl border border-border">
-            <div class="grid grid-cols-[auto_1fr_80px_100px_1fr_100px_100px_100px_60px] items-center gap-3 border-b border-border bg-elevated/80 px-4 py-2.5 text-xs font-medium uppercase tracking-wider text-muted">
-              <span class="w-2" />
-              <span>Project</span>
-              <span>Env</span>
-              <span>Metric</span>
-              <span>Message</span>
-              <span>Created</span>
-              <span>Resolved</span>
-              <span>Duration</span>
-              <span />
-            </div>
+      </div>
 
-            {visible.value.map((inc) => {
-              const isOpen = !inc.resolved_at;
-              return (
-                <div
-                  key={inc.id}
-                  class={`grid grid-cols-[auto_1fr_80px_100px_1fr_100px_100px_100px_60px] items-center gap-3 border-b border-border/50 px-4 py-3 text-sm transition-colors hover:bg-white/[0.02] ${inc.ignored ? "opacity-40" : ""}`}
-                  style={{ animation: "bm-fade-in 0.3s ease" }}
-                >
-                  <span class={`inline-block h-2 w-2 rounded-full ${inc.ignored ? "bg-warning" : isOpen ? "bg-failure animate-pulse" : "bg-success"}`} />
-                  <span class={`truncate font-medium text-text ${inc.ignored ? "line-through" : ""}`}>
-                    {inc.project_name || `Project ${inc.project_id}`}
-                  </span>
-                  <span class="inline-block w-fit rounded bg-border/50 px-1.5 py-0.5 text-[10px] font-medium uppercase text-muted">
-                    {inc.env}
-                  </span>
-                  <span class={`text-xs font-medium ${inc.metric === "health_status" ? "text-failure" : "text-warning"}`}>
-                    {metricLabel(inc.metric)}
-                  </span>
-                  <span class="truncate text-xs text-muted">{inc.message}</span>
-                  <span class="text-xs text-muted">{timeAgo(inc.created_at)}</span>
-                  <span class="text-xs text-muted">
-                    {inc.resolved_at ? timeAgo(inc.resolved_at) : <span class="text-failure">active</span>}
-                  </span>
-                  <span class="font-mono text-xs text-muted">
-                    {inc.resolved_at
-                      ? formatDuration(inc.created_at, inc.resolved_at)
-                      : formatDuration(inc.created_at, new Date().toISOString())}
-                  </span>
-                  <button
-                    class={`rounded p-1 transition-colors ${inc.ignored ? "text-warning hover:text-text" : "text-muted hover:text-warning"}`}
-                    title={inc.ignored ? "Unignore" : "Ignore"}
-                    onClick$={async () => {
-                      await ignoreIncident(inc.id, !inc.ignored).catch(() => {});
-                      await doRefresh();
-                    }}
-                  >
-                    {inc.ignored ? (
-                      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
-                        <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
-                        <line x1="1" y1="1" x2="23" y2="23" />
-                      </svg>
-                    ) : (
-                      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                        <circle cx="12" cy="12" r="3" />
-                      </svg>
-                    )}
-                  </button>
+      <div class="greet">
+        <div>
+          <h1>Incidents <em>· 3 open · 2 acknowledged</em></h1>
+        </div>
+      </div>
+
+      <div class="sub-grid c2">
+        {/* Left column */}
+        <div>
+          {/* Open incidents */}
+          <div class="panel">
+            <div class="panel-head">
+              <h3>Open incidents <span class="cnt">3</span></h3>
+            </div>
+            <div class="panel-body p0">
+              {openIncidents.map((inc, i) => (
+                <div class="incident-row" key={i}>
+                  <div class={`sev ${inc.sevCls}`}></div>
+                  <div class="title">
+                    <b>{inc.title}</b>
+                    <p>{inc.desc}</p>
+                    <div class="tags">
+                      <span class="pill plain">{inc.sev}</span>
+                      {inc.tags.map((t) => (
+                        <span class="pill plain" key={t}>{t}</span>
+                      ))}
+                    </div>
+                  </div>
+                  <div class="when">{inc.ago}</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <button class="btn btn-outline" style={{ padding: "4px 10px", fontSize: "11px" }}>Acknowledge</button>
+                    <button class="btn btn-primary" style={{ padding: "4px 10px", fontSize: "11px" }}>Resolve</button>
+                  </div>
                 </div>
-              );
-            })}
+              ))}
+            </div>
           </div>
 
-          {/* Sentinel: observed for infinite scroll. Only rendered when there are more items.
-              When hasMore is false (all loaded), show a "done" message instead. */}
-          {hasMore.value ? (
-            <div ref={sentinelRef} class="flex items-center justify-center gap-2 py-6 text-xs text-muted">
-              <div class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-accent/40 border-t-accent" />
-              Loading more…
+          {/* Recent resolved */}
+          <div class="panel">
+            <div class="panel-head">
+              <h3>Recent <span class="cnt">last 7d</span></h3>
             </div>
-          ) : filtered.value.length > PAGE_SIZE ? (
-            <p class="py-6 text-center text-xs text-muted">
-              All {filtered.value.length} incidents loaded
-            </p>
-          ) : null}
-        </>
-      )}
+            <div class="panel-body p0">
+              <table class="tbl">
+                <thead>
+                  <tr>
+                    <th>Incident</th>
+                    <th>Severity</th>
+                    <th>Resolved</th>
+                    <th>Duration</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {resolvedRows.map((r, i) => (
+                    <tr key={i}>
+                      <td><b>{r.title}</b></td>
+                      <td><span class="pill plain">{r.sev}</span></td>
+                      <td class="muted">{r.resolved}</td>
+                      <td class="mono">{r.dur}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        {/* Right column */}
+        <div>
+          {/* On-call */}
+          <div class="panel">
+            <div class="panel-head">
+              <h3>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 10.5v-1a4 4 0 0 1 4-4h0a4 4 0 0 1 4 4v1" /><circle cx="5.5" cy="3" r="2" /><path d="M9.5 5.5a2.5 2.5 0 0 1 3.5 2.3v2.7" /><circle cx="11" cy="3.5" r="1.5" /></svg>
+                On-call
+              </h3>
+            </div>
+            <div class="panel-body">
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <b style={{ fontSize: 13 }}>Anshuman Biswas</b>
+                    <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>primary</div>
+                  </div>
+                  <span class="pill ok">on-call</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <b style={{ fontSize: 13 }}>Maya Patel</b>
+                    <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>secondary</div>
+                  </div>
+                  <span class="pill plain">backup</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* MTTR trend */}
+          <div class="panel">
+            <div class="panel-head">
+              <h3>MTTR trend <span class="cnt">30d</span></h3>
+            </div>
+            <div class="panel-body">
+              <svg viewBox="0 0 280 80" style={{ width: "100%", height: 80 }}>
+                <polyline
+                  fill="none"
+                  stroke="var(--accent)"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  points="0,60 20,55 40,48 60,52 80,40 100,35 120,42 140,30 160,25 180,32 200,22 220,18 240,20 260,15 280,12"
+                />
+                <polyline
+                  fill="none"
+                  stroke="var(--text-3)"
+                  stroke-width="1"
+                  stroke-dasharray="4 3"
+                  points="0,40 280,40"
+                />
+                <text x="282" y="42" fill="var(--text-3)" font-size="8" font-family="var(--mono)">avg</text>
+              </svg>
+              <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-3)", marginTop: 6 }}>
+                <span>30d ago</span>
+                <span>MTTR: 18 min avg</span>
+                <span>now</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Top offenders */}
+          <div class="panel">
+            <div class="panel-head">
+              <h3>Top offenders <span class="cnt">30d</span></h3>
+            </div>
+            <div class="panel-body">
+              {topOffenders.map((o) => (
+                <div key={o.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px dashed var(--line-soft)", fontSize: 13 }}>
+                  <span style={{ fontWeight: 500 }}>{o.name}</span>
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-3)" }}>{o.count} incidents</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 });
