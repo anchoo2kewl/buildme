@@ -1,23 +1,54 @@
-import { component$ } from "@builder.io/qwik";
+import { component$, useSignal, useVisibleTask$, useComputed$ } from "@builder.io/qwik";
+import { fetchDrift } from "~/lib/api";
+import type { DriftDashboard, EnvironmentStatus } from "~/lib/types";
+
+function timeAgo(dateStr: string): string {
+  const diff = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+function statusPill(code: number): { cls: string; label: string } {
+  if (code === 200) return { cls: "ok", label: `${code} OK` };
+  if (code === 0) return { cls: "fail", label: "unreachable" };
+  return { cls: "warn", label: `${code}` };
+}
 
 export default component$(() => {
-  const regions = [
-    { name: "us-east-1", status: "ok", latency: "204ms", p50: "198ms", p95: "312ms", checks: 4, polyline: "0,30 20,28 40,32 60,26 80,30 100,24 120,28 140,22 160,26 180,20 200,24" },
-    { name: "us-west-2", status: "ok", latency: "188ms", p50: "182ms", p95: "290ms", checks: 3, polyline: "0,34 20,30 40,26 60,28 80,22 100,20 120,24 140,18 160,22 180,16 200,20" },
-    { name: "eu-west-1", status: "warn", latency: "850ms", p50: "420ms", p95: "1.2s", checks: 3, polyline: "0,20 20,22 40,18 60,30 80,38 100,42 120,36 140,44 160,40 180,46 200,42" },
-    { name: "ap-south-1", status: "ok", latency: "342ms", p50: "328ms", p95: "510ms", checks: 1, polyline: "0,32 20,34 40,30 60,28 80,32 100,26 120,30 140,24 160,28 180,22 200,26" },
-    { name: "sa-east-1", status: "ok", latency: "298ms", p50: "284ms", p95: "462ms", checks: 1, polyline: "0,28 20,26 40,30 60,24 80,28 100,22 120,26 140,20 160,24 180,18 200,22" },
-  ];
+  const drift = useSignal<DriftDashboard | null>(null);
+  const loading = useSignal(true);
+  const error = useSignal("");
 
-  const endpoints = [
-    { url: "api.build.biswas.me/health", check: "HTTP 200", regions: 5, cadence: "30s", p50: "142ms", p95: "280ms", status: "ok", incident: "none" },
-    { url: "app.build.biswas.me", check: "HTTP 200", regions: 5, cadence: "30s", p50: "204ms", p95: "410ms", status: "ok", incident: "none" },
-    { url: "api.build.biswas.me/v2/builds", check: "HTTP 200", regions: 3, cadence: "60s", p50: "310ms", p95: "580ms", status: "ok", incident: "none" },
-    { url: "mcp.build.biswas.me/health", check: "HTTP 200", regions: 5, cadence: "30s", p50: "98ms", p95: "190ms", status: "ok", incident: "none" },
-    { url: "docs.build.biswas.me", check: "HTTP 200", regions: 3, cadence: "120s", p50: "180ms", p95: "340ms", status: "ok", incident: "none" },
-    { url: "payments.build.biswas.me/health", check: "TCP + TLS", regions: 2, cadence: "30s", p50: "88ms", p95: "150ms", status: "ok", incident: "none" },
-    { url: "eu-west-1 → api.build.biswas.me", check: "HTTP 200", regions: 1, cadence: "30s", p50: "420ms", p95: "1.2s", status: "warn", incident: "4h ago" },
-  ];
+  // eslint-disable-next-line qwik/no-use-visible-task
+  useVisibleTask$(async () => {
+    try {
+      drift.value = await fetchDrift();
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : "Failed to load";
+    } finally {
+      loading.value = false;
+    }
+  });
+
+  const allStatuses = useComputed$(() => {
+    if (!drift.value) return [] as EnvironmentStatus[];
+    return drift.value.projects.flatMap((p) => p.environments);
+  });
+
+  const total = useComputed$(() => allStatuses.value.length);
+  const healthyCount = useComputed$(() => allStatuses.value.filter((s) => s.health_status === 200).length);
+
+  const envGroups = useComputed$(() => {
+    const grouped: Record<string, EnvironmentStatus[]> = {};
+    for (const s of allStatuses.value) {
+      const key = s.env || "unknown";
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(s);
+    }
+    return grouped;
+  });
 
   return (
     <div>
@@ -26,91 +57,110 @@ export default component$(() => {
           workspace <span>/</span> <b>probes</b>
         </div>
         <div class="page-top-actions">
-          <div class="search">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.2" cy="6.2" r="4.5" /><path d="m12.5 12.5-3-3" /></svg>
-            <input type="text" placeholder="Search probes..." />
-          </div>
-          <button class="btn btn-outline">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="7" r="5.5" /><circle cx="7" cy="7" r="2" /><line x1="7" y1="1" x2="7" y2="2.5" /><line x1="7" y1="11.5" x2="7" y2="13" /><line x1="1" y1="7" x2="2.5" y2="7" /><line x1="11.5" y1="7" x2="13" y2="7" /></svg>
-            Add endpoint
+          <button class="btn btn-primary">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 1.5v11M1.5 7h11" /></svg>
+            Add probe
           </button>
         </div>
       </div>
 
-      <div class="greet">
-        <div>
-          <h1>Distributed probes <em>· 5 regions · 12 endpoints</em></h1>
-          <p class="sub-row">
-            <span class="liveping"><span class="d"></span> streaming</span>
-          </p>
-        </div>
-      </div>
-
-      <div class="sub-grid c3">
-        {regions.map((r) => (
-          <div class="region-card" key={r.name}>
-            <div class="rc-top">
-              <div>
-                <b>{r.name}</b>
-                <small>{r.checks} check{r.checks !== 1 ? "s" : ""}</small>
-              </div>
-              <span class={`pill ${r.status}`}>{r.latency}</span>
-            </div>
-            <div class="lat-chart">
-              <svg viewBox="0 0 200 50" style={{ width: "100%", height: "100%" }} preserveAspectRatio="none">
-                <polyline
-                  fill="none"
-                  stroke={r.status === "warn" ? "var(--warn)" : "var(--accent)"}
-                  stroke-width="1.5"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  points={r.polyline}
-                />
-              </svg>
-            </div>
-            <div class="rc-meta">
-              <span>p50: {r.p50}</span>
-              <span>p95: {r.p95}</span>
+      {loading.value ? (
+        <div class="greet"><div><h1>Loading...</h1><p class="sub-row"><span class="liveping"><span class="d"></span> checking</span></p></div></div>
+      ) : error.value ? (
+        <div class="greet"><div><h1>Environment health</h1><p style={{ color: "var(--danger)" }}>{error.value}</p></div></div>
+      ) : (
+        <>
+          <div class="greet">
+            <div>
+              <h1>Environment health <em>· {total.value} endpoints · {healthyCount.value} healthy</em></h1>
+              <p class="sub-row">
+                <span class="liveping"><span class="d"></span> live</span>
+              </p>
             </div>
           </div>
-        ))}
-      </div>
 
-      <div class="panel" style={{ marginTop: 24 }}>
-        <div class="panel-head">
-          <h3>Endpoints <span class="cnt">7</span></h3>
-        </div>
-        <div class="panel-body p0">
-          <table class="tbl">
-            <thead>
-              <tr>
-                <th>Endpoint</th>
-                <th>Check</th>
-                <th>Regions</th>
-                <th>Cadence</th>
-                <th>p50</th>
-                <th>p95</th>
-                <th>Status</th>
-                <th>Last incident</th>
-              </tr>
-            </thead>
-            <tbody>
-              {endpoints.map((e, i) => (
-                <tr key={i}>
-                  <td><b>{e.url}</b></td>
-                  <td class="mono">{e.check}</td>
-                  <td class="mono">{e.regions}</td>
-                  <td class="mono">{e.cadence}</td>
-                  <td class="mono">{e.p50}</td>
-                  <td class="mono">{e.p95}</td>
-                  <td><span class={`pill ${e.status}`}>{e.status === "ok" ? "healthy" : "degraded"}</span></td>
-                  <td class="muted">{e.incident}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+          {total.value === 0 ? (
+            <div class="panel">
+              <div class="panel-body" style={{ textAlign: "center", padding: "48px 24px" }}>
+                <p style={{ color: "var(--text-2)", fontSize: 14 }}>No environment statuses found. Configure projects with health endpoints to see probes here.</p>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div class="sub-grid c3">
+                {Object.entries(envGroups.value).map(([env, statuses]) => {
+                  const healthy = statuses.filter((s) => s.health_status === 200).length;
+                  const avgMs = statuses.length > 0
+                    ? Math.round(statuses.reduce((sum, s) => sum + s.response_time_ms, 0) / statuses.length)
+                    : 0;
+                  const pillCls = avgMs < 500 ? "ok" : "warn";
+
+                  return (
+                    <div class="region-card" key={env}>
+                      <div class="rc-top">
+                        <div>
+                          <b>{env}</b>
+                          <small>{statuses.length} endpoint{statuses.length !== 1 ? "s" : ""}</small>
+                        </div>
+                        <span class={`pill ${pillCls}`}>{avgMs}ms</span>
+                      </div>
+                      <div class="rc-meta">
+                        <span>{healthy}/{statuses.length} healthy ({statuses.length > 0 ? Math.round((healthy / statuses.length) * 100) : 0}%)</span>
+                        <span>avg {avgMs}ms</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div class="panel" style={{ marginTop: 24 }}>
+                <div class="panel-head">
+                  <h3>All endpoints <span class="cnt">{total.value}</span></h3>
+                </div>
+                <div class="panel-body p0">
+                  <table class="tbl">
+                    <thead>
+                      <tr>
+                        <th>Endpoint</th>
+                        <th>Status</th>
+                        <th>Response Time</th>
+                        <th>Deployed SHA</th>
+                        <th>Drift</th>
+                        <th>Last Check</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {allStatuses.value.map((s, i) => {
+                        const sp = statusPill(s.health_status);
+                        return (
+                          <tr key={i}>
+                            <td>
+                              <b>{s.project_name}</b>
+                              <br />
+                              <small class="muted">{s.base_url}</small>
+                            </td>
+                            <td><span class={`pill ${sp.cls}`}>{sp.label}</span></td>
+                            <td class="mono">{s.response_time_ms}ms</td>
+                            <td class="mono">{s.deployed_sha ? s.deployed_sha.substring(0, 7) : "—"}</td>
+                            <td>
+                              {s.is_drifted ? (
+                                <span class="pill warn">drifted</span>
+                              ) : (
+                                <span class="muted">in sync</span>
+                              )}
+                            </td>
+                            <td class="muted">{s.checked_at ? timeAgo(s.checked_at) : "—"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          )}
+        </>
+      )}
     </div>
   );
 });

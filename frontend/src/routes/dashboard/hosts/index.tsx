@@ -1,121 +1,384 @@
-import { component$ } from "@builder.io/qwik";
+import { component$, useSignal, useVisibleTask$, useComputed$, $ } from "@builder.io/qwik";
+import { fetchHosts, fetchHostMetrics } from "~/lib/api";
+import type { Host, HostMetric } from "~/lib/types";
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+}
+
+function formatUptime(secs: number): string {
+  const d = Math.floor(secs / 86400);
+  const h = Math.floor((secs % 86400) / 3600);
+  if (d > 0) return `${d}d ${h}h`;
+  const m = Math.floor((secs % 3600) / 60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+function timeAgo(dateStr: string): string {
+  const diff = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+function isOnline(host: Host): boolean {
+  if (!host.last_heartbeat_at) return false;
+  return (Date.now() - new Date(host.last_heartbeat_at).getTime()) / 1000 < 120;
+}
+
+function hasAlert(host: Host): boolean {
+  return (
+    host.cpu_percent > host.cpu_threshold ||
+    host.memory_percent > host.memory_threshold ||
+    host.disk_percent > host.disk_threshold
+  );
+}
+
+function sparklinePoints(
+  metrics: HostMetric[],
+  key: keyof HostMetric,
+  w: number,
+  h: number,
+): string {
+  const reversed = [...metrics].reverse();
+  if (reversed.length === 0) return "";
+  const vals = reversed.map((m) => Number(m[key]));
+  const max = Math.max(...vals, 1);
+  const step = w / Math.max(reversed.length - 1, 1);
+  return reversed
+    .map((_, i) => {
+      const x = i * step;
+      const y = h - (vals[i] / max) * h;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+}
+
+function hostStatus(host: Host): "ok" | "warn" | "fail" {
+  if (!isOnline(host)) return "fail";
+  if (hasAlert(host)) return "warn";
+  return "ok";
+}
+
+function statusLabel(s: "ok" | "warn" | "fail"): string {
+  if (s === "ok") return "healthy";
+  if (s === "warn") return "warning";
+  return "offline";
+}
 
 export default component$(() => {
-  const hostCards = [
-    {
-      name: "prod-web-01", region: "us-east-1", status: "ok",
-      metrics: [
-        { label: "CPU", val: "34%", pct: 34, warn: false },
-        { label: "Memory", val: "61%", pct: 61, warn: false },
-        { label: "Disk", val: "42%", pct: 42, warn: false },
-        { label: "Net I/O", val: "12 MB/s", pct: 24, warn: false },
-        { label: "Load", val: "1.82", pct: 46, warn: false },
-      ],
-    },
-    {
-      name: "prod-web-02", region: "us-east-1", status: "ok",
-      metrics: [
-        { label: "CPU", val: "28%", pct: 28, warn: false },
-        { label: "Memory", val: "55%", pct: 55, warn: false },
-        { label: "Disk", val: "38%", pct: 38, warn: false },
-        { label: "Net I/O", val: "9 MB/s", pct: 18, warn: false },
-        { label: "Load", val: "1.24", pct: 31, warn: false },
-      ],
-    },
-    {
-      name: "prod-worker-01", region: "us-west-2", status: "warn",
-      metrics: [
-        { label: "CPU", val: "87%", pct: 87, warn: true },
-        { label: "Memory", val: "72%", pct: 72, warn: false },
-        { label: "Disk", val: "65%", pct: 65, warn: false },
-        { label: "Net I/O", val: "4 MB/s", pct: 8, warn: false },
-        { label: "Load", val: "6.41", pct: 80, warn: true },
-      ],
-    },
-    {
-      name: "stg-web-01", region: "eu-west-1", status: "warn",
-      metrics: [
-        { label: "CPU", val: "42%", pct: 42, warn: false },
-        { label: "Memory", val: "89%", pct: 89, warn: true },
-        { label: "Disk", val: "71%", pct: 71, warn: false },
-        { label: "Net I/O", val: "2 MB/s", pct: 4, warn: false },
-        { label: "Load", val: "2.10", pct: 53, warn: false },
-      ],
-    },
-  ];
+  const hosts = useSignal<Host[]>([]);
+  const search = useSignal("");
+  const filter = useSignal<"all" | "healthy" | "warning" | "offline">("all");
+  const expandedCardId = useSignal<number | null>(null);
+  const expandedRowId = useSignal<number | null>(null);
+  const metricsCache = useSignal<Record<number, HostMetric[]>>({});
 
-  const hostRows = [
-    { name: "prod-web-01", region: "us-east-1", status: "ok", cpu: "34%", mem: "61%", disk: "42%", uptime: "42d 7h", seen: "12s ago" },
-    { name: "prod-web-02", region: "us-east-1", status: "ok", cpu: "28%", mem: "55%", disk: "38%", uptime: "42d 7h", seen: "10s ago" },
-    { name: "prod-worker-01", region: "us-west-2", status: "warn", cpu: "87%", mem: "72%", disk: "65%", uptime: "18d 3h", seen: "8s ago" },
-    { name: "prod-worker-02", region: "us-west-2", status: "ok", cpu: "22%", mem: "48%", disk: "51%", uptime: "18d 3h", seen: "14s ago" },
-    { name: "stg-web-01", region: "eu-west-1", status: "warn", cpu: "42%", mem: "89%", disk: "71%", uptime: "9d 14h", seen: "6s ago" },
-    { name: "stg-worker-01", region: "eu-west-1", status: "ok", cpu: "15%", mem: "34%", disk: "28%", uptime: "9d 14h", seen: "18s ago" },
-    { name: "prod-db-01", region: "us-east-1", status: "ok", cpu: "19%", mem: "67%", disk: "54%", uptime: "91d 2h", seen: "4s ago" },
-    { name: "prod-cache-01", region: "us-east-1", status: "ok", cpu: "11%", mem: "82%", disk: "12%", uptime: "91d 2h", seen: "9s ago" },
-  ];
+  const onlineCount = useComputed$(() =>
+    hosts.value.filter((h) => isOnline(h)).length,
+  );
+  const offlineCount = useComputed$(() =>
+    hosts.value.filter((h) => !isOnline(h)).length,
+  );
+  const healthyCount = useComputed$(() =>
+    hosts.value.filter((h) => isOnline(h) && !hasAlert(h)).length,
+  );
+  const warningCount = useComputed$(() =>
+    hosts.value.filter((h) => isOnline(h) && hasAlert(h)).length,
+  );
+
+  const filtered = useComputed$(() => {
+    let list = hosts.value;
+    if (search.value) {
+      const q = search.value.toLowerCase();
+      list = list.filter(
+        (h) =>
+          h.name.toLowerCase().includes(q) ||
+          h.hostname.toLowerCase().includes(q) ||
+          (h.ip_address && h.ip_address.toLowerCase().includes(q)),
+      );
+    }
+    if (filter.value === "healthy")
+      list = list.filter((h) => isOnline(h) && !hasAlert(h));
+    else if (filter.value === "warning")
+      list = list.filter((h) => isOnline(h) && hasAlert(h));
+    else if (filter.value === "offline") list = list.filter((h) => !isOnline(h));
+    return list;
+  });
+
+  const loadMetrics = $(async (hostId: number) => {
+    if (metricsCache.value[hostId]) return;
+    try {
+      const data = await fetchHostMetrics(hostId, 60);
+      metricsCache.value = { ...metricsCache.value, [hostId]: data };
+    } catch {
+      /* ignore */
+    }
+  });
+
+  const toggleCard = $(async (hostId: number) => {
+    if (expandedCardId.value === hostId) {
+      expandedCardId.value = null;
+    } else {
+      expandedCardId.value = hostId;
+      await loadMetrics(hostId);
+    }
+  });
+
+  const toggleRow = $(async (hostId: number) => {
+    if (expandedRowId.value === hostId) {
+      expandedRowId.value = null;
+    } else {
+      expandedRowId.value = hostId;
+      await loadMetrics(hostId);
+    }
+  });
+
+  // eslint-disable-next-line qwik/no-use-visible-task
+  useVisibleTask$(({ cleanup }) => {
+    const load = async () => {
+      try {
+        const data = await fetchHosts();
+        hosts.value = data;
+      } catch {
+        /* ignore */
+      }
+    };
+    load();
+    const id = setInterval(load, 30_000);
+    cleanup(() => clearInterval(id));
+  });
 
   return (
     <div>
+      {/* ── Page top ── */}
       <div class="page-top">
         <div class="breadcrumb">
           workspace <span>/</span> <b>hosts</b>
         </div>
         <div class="page-top-actions">
           <div class="search">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.2" cy="6.2" r="4.5" /><path d="m12.5 12.5-3-3" /></svg>
-            <input type="text" placeholder="Search hosts..." />
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="6.2" cy="6.2" r="4.5" />
+              <path d="m12.5 12.5-3-3" />
+            </svg>
+            <input
+              type="text"
+              placeholder="Search hosts..."
+              value={search.value}
+              onInput$={(_, el) => (search.value = (el as HTMLInputElement).value)}
+            />
           </div>
           <button class="btn btn-outline">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="10" height="4" rx="1" /><rect x="2" y="8" width="10" height="4" rx="1" /><circle cx="4.5" cy="4" r="0.5" fill="currentColor" /><circle cx="4.5" cy="10" r="0.5" fill="currentColor" /></svg>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M7 2v10M4 5l3-3 3 3" />
+            </svg>
+            Install agent
+          </button>
+          <button class="btn btn-primary">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M7 2v10M2 7h10" />
+            </svg>
             Add host
           </button>
         </div>
       </div>
 
+      {/* ── Greeting ── */}
       <div class="greet">
         <div>
-          <h1>Hosts <em>· 8 online · 0 offline</em></h1>
+          <h1>
+            Hosts{" "}
+            <em>
+              · {onlineCount.value} online · {offlineCount.value} offline
+            </em>
+          </h1>
           <p class="sub-row">
-            <span class="liveping"><span class="d"></span> streaming</span>
+            <span class="liveping">
+              <span class="d"></span> agents reporting
+            </span>
+            <span class="muted">metrics every 30s</span>
           </p>
         </div>
       </div>
 
+      {/* ── Filter bar ── */}
       <div class="filter-bar">
-        <span class="fchip active">All · 8</span>
-        <span class="fchip">Healthy · 6</span>
-        <span class="fchip">Warning · 2</span>
-        <span class="fchip">Offline · 0</span>
+        <span
+          class={`fchip ${filter.value === "all" ? "active" : ""}`}
+          onClick$={() => (filter.value = "all")}
+        >
+          All · {hosts.value.length}
+        </span>
+        <span
+          class={`fchip ${filter.value === "healthy" ? "active" : ""}`}
+          onClick$={() => (filter.value = "healthy")}
+        >
+          Healthy · {healthyCount.value}
+        </span>
+        <span
+          class={`fchip ${filter.value === "warning" ? "active" : ""}`}
+          onClick$={() => (filter.value = "warning")}
+        >
+          Warning · {warningCount.value}
+        </span>
+        <span
+          class={`fchip ${filter.value === "offline" ? "active" : ""}`}
+          onClick$={() => (filter.value = "offline")}
+        >
+          Offline · {offlineCount.value}
+        </span>
         <span style={{ flex: 1 }}></span>
-        <span class="fchip">env:prod</span>
-        <span class="fchip">env:stg</span>
-        <span class="fchip">tag:worker</span>
       </div>
 
+      {/* ── Host cards ── */}
       <div class="sub-grid c2-even">
-        {hostCards.map((h) => (
-          <div class="host-card" key={h.name}>
-            <div class="hc-top">
-              <div>
-                <b>{h.name}</b>
-                <small>{h.region}</small>
-              </div>
-              <span class={`pill ${h.status}`}>{h.status === "ok" ? "healthy" : "warning"}</span>
-            </div>
-            <div class="hc-metrics">
-              {h.metrics.map((m) => (
-                <div class={`host-metric ${m.warn ? "warn" : ""}`} key={m.label}>
-                  <span>{m.label}</span>
-                  <div class="track"><div style={{ width: `${m.pct}%` }}></div></div>
-                  <span class="val">{m.val}</span>
+        {filtered.value.map((h) => {
+          const st = hostStatus(h);
+          const expanded = expandedCardId.value === h.id;
+          const metrics = metricsCache.value[h.id] || [];
+          return (
+            <div
+              class="host-card"
+              key={h.id}
+              onClick$={() => toggleCard(h.id)}
+              style={{ cursor: "pointer" }}
+            >
+              <div class="hc-top">
+                <div>
+                  <b>{h.name}</b>
+                  <small>{h.os_info || h.hostname}</small>
                 </div>
-              ))}
+                <span class={`pill ${st}`}>{statusLabel(st)}</span>
+              </div>
+              <div class="hc-metrics">
+                {[
+                  { label: "CPU", val: `${h.cpu_percent.toFixed(1)}%`, pct: h.cpu_percent, warn: h.cpu_percent > h.cpu_threshold },
+                  { label: "Memory", val: `${h.memory_percent.toFixed(1)}%`, pct: h.memory_percent, warn: h.memory_percent > h.memory_threshold },
+                  { label: "Disk", val: `${h.disk_percent.toFixed(1)}%`, pct: h.disk_percent, warn: h.disk_percent > h.disk_threshold },
+                  { label: "Net In", val: formatBytes(h.net_in_bytes) + "/s", pct: Math.min((h.net_in_bytes / 1_000_000) * 10, 100), warn: false },
+                  { label: "Net Out", val: formatBytes(h.net_out_bytes) + "/s", pct: Math.min((h.net_out_bytes / 1_000_000) * 10, 100), warn: false },
+                ].map((m) => (
+                  <div class={`host-metric ${m.warn ? "warn" : ""}`} key={m.label}>
+                    <span>{m.label}</span>
+                    <div class="track">
+                      <div
+                        style={{
+                          width: `${Math.min(m.pct, 100)}%`,
+                          background: m.warn ? "var(--warn)" : "var(--accent)",
+                        }}
+                      ></div>
+                    </div>
+                    <span class="val">{m.val}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* ── Expanded card detail ── */}
+              {expanded && (
+                <div class="hc-detail" onClick$={(e) => e.stopPropagation()}>
+                  {/* Threshold metric bars */}
+                  <div class="hc-metrics" style={{ marginTop: 12 }}>
+                    {[
+                      { label: "CPU", pct: h.cpu_percent, threshold: h.cpu_threshold },
+                      { label: "MEM", pct: h.memory_percent, threshold: h.memory_threshold },
+                      { label: "DISK", pct: h.disk_percent, threshold: h.disk_threshold },
+                    ].map((m) => (
+                      <div class={`host-metric ${m.pct > m.threshold ? "warn" : ""}`} key={m.label}>
+                        <span>{m.label}</span>
+                        <div class="track" style={{ position: "relative" }}>
+                          <div
+                            style={{
+                              width: `${Math.min(m.pct, 100)}%`,
+                              background: m.pct > m.threshold ? "var(--warn)" : "var(--accent)",
+                            }}
+                          ></div>
+                          <div
+                            style={{
+                              position: "absolute",
+                              left: `${m.threshold}%`,
+                              top: 0,
+                              bottom: 0,
+                              width: "2px",
+                              background: "var(--warn)",
+                              opacity: 0.7,
+                            }}
+                            title={`Threshold: ${m.threshold}%`}
+                          ></div>
+                        </div>
+                        <span class="val">{m.pct.toFixed(1)}% / {m.threshold}%</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Info grid */}
+                  <div class="sub-grid c2-even" style={{ marginTop: 12, gap: "6px 16px", fontSize: "0.85em" }}>
+                    <div><span class="muted">IP</span> <span class="mono">{h.ip_address || "—"}</span></div>
+                    <div><span class="muted">OS</span> <span class="mono">{h.os_info || "—"}</span></div>
+                    <div><span class="muted">Agent</span> <span class="mono">{h.agent_version || "—"}</span></div>
+                    <div><span class="muted">Uptime</span> <span class="mono">{formatUptime(h.uptime_secs)}</span></div>
+                    <div><span class="muted">Memory</span> <span class="mono">{formatBytes(h.memory_used)} / {formatBytes(h.memory_total)}</span></div>
+                    <div><span class="muted">Disk</span> <span class="mono">{formatBytes(h.disk_used)} / {formatBytes(h.disk_total)}</span></div>
+                    <div><span class="muted">Net In</span> <span class="mono">{formatBytes(h.net_in_bytes)}/s</span></div>
+                    <div><span class="muted">Net Out</span> <span class="mono">{formatBytes(h.net_out_bytes)}/s</span></div>
+                  </div>
+
+                  {/* Sparkline charts */}
+                  {metrics.length > 0 && (
+                    <div class="sub-grid c2-even" style={{ marginTop: 12 }}>
+                      {(
+                        [
+                          { title: "CPU History", key: "cpu_percent" as keyof HostMetric },
+                          { title: "Memory History", key: "memory_percent" as keyof HostMetric },
+                          { title: "Disk History", key: "disk_percent" as keyof HostMetric },
+                          { title: "Network I/O", key: "net_in_bytes" as keyof HostMetric },
+                        ] as const
+                      ).map((chart) => (
+                        <div key={chart.title} style={{ padding: "8px 0" }}>
+                          <small class="muted">{chart.title}</small>
+                          <svg
+                            viewBox="0 0 200 40"
+                            width="100%"
+                            height="40"
+                            preserveAspectRatio="none"
+                            style={{ display: "block", marginTop: 4 }}
+                          >
+                            <polyline
+                              points={sparklinePoints(metrics, chart.key, 200, 40)}
+                              fill="none"
+                              stroke="var(--accent)"
+                              stroke-width="1.5"
+                            />
+                          </svg>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Linked projects */}
+                  {h.project_names && h.project_names.length > 0 && (
+                    <div style={{ marginTop: 12 }}>
+                      <small class="muted">Linked projects</small>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+                        {h.project_names.map((p) => (
+                          <span class="pill" key={p}>{p}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
+      {/* ── All hosts table ── */}
       <div class="panel" style={{ marginTop: 24 }}>
         <table class="tbl">
           <thead>
@@ -131,18 +394,124 @@ export default component$(() => {
             </tr>
           </thead>
           <tbody>
-            {hostRows.map((r) => (
-              <tr key={r.name}>
-                <td><b>{r.name}</b></td>
-                <td class="mono">{r.region}</td>
-                <td><span class={`pill ${r.status}`}>{r.status === "ok" ? "healthy" : "warning"}</span></td>
-                <td class="mono">{r.cpu}</td>
-                <td class="mono">{r.mem}</td>
-                <td class="mono">{r.disk}</td>
-                <td class="mono">{r.uptime}</td>
-                <td class="muted">{r.seen}</td>
-              </tr>
-            ))}
+            {filtered.value.map((h) => {
+              const st = hostStatus(h);
+              const expanded = expandedRowId.value === h.id;
+              const metrics = metricsCache.value[h.id] || [];
+              return (
+                <>
+                  <tr
+                    key={h.id}
+                    onClick$={() => toggleRow(h.id)}
+                    style={{ cursor: "pointer" }}
+                  >
+                    <td><b>{h.name}</b></td>
+                    <td class="mono">{h.os_info || h.hostname}</td>
+                    <td><span class={`pill ${st}`}>{statusLabel(st)}</span></td>
+                    <td class="mono">{h.cpu_percent.toFixed(1)}%</td>
+                    <td class="mono">{h.memory_percent.toFixed(1)}%</td>
+                    <td class="mono">{h.disk_percent.toFixed(1)}%</td>
+                    <td class="mono">{formatUptime(h.uptime_secs)}</td>
+                    <td class="muted">{h.last_heartbeat_at ? timeAgo(h.last_heartbeat_at) : "—"}</td>
+                  </tr>
+                  {expanded && (
+                    <tr key={`${h.id}-detail`}>
+                      <td colSpan={8} style={{ padding: "12px 16px", background: "var(--bg-raised, var(--bg2))" }}>
+                        {/* Threshold bars */}
+                        <div class="hc-metrics" style={{ maxWidth: 500 }}>
+                          {[
+                            { label: "CPU", pct: h.cpu_percent, threshold: h.cpu_threshold },
+                            { label: "MEM", pct: h.memory_percent, threshold: h.memory_threshold },
+                            { label: "DISK", pct: h.disk_percent, threshold: h.disk_threshold },
+                          ].map((m) => (
+                            <div class={`host-metric ${m.pct > m.threshold ? "warn" : ""}`} key={m.label}>
+                              <span>{m.label}</span>
+                              <div class="track" style={{ position: "relative" }}>
+                                <div
+                                  style={{
+                                    width: `${Math.min(m.pct, 100)}%`,
+                                    background: m.pct > m.threshold ? "var(--warn)" : "var(--accent)",
+                                  }}
+                                ></div>
+                                <div
+                                  style={{
+                                    position: "absolute",
+                                    left: `${m.threshold}%`,
+                                    top: 0,
+                                    bottom: 0,
+                                    width: "2px",
+                                    background: "var(--warn)",
+                                    opacity: 0.7,
+                                  }}
+                                  title={`Threshold: ${m.threshold}%`}
+                                ></div>
+                              </div>
+                              <span class="val">{m.pct.toFixed(1)}% / {m.threshold}%</span>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Info grid */}
+                        <div class="sub-grid c2-even" style={{ marginTop: 12, gap: "6px 16px", fontSize: "0.85em", maxWidth: 500 }}>
+                          <div><span class="muted">IP</span> <span class="mono">{h.ip_address || "—"}</span></div>
+                          <div><span class="muted">OS</span> <span class="mono">{h.os_info || "—"}</span></div>
+                          <div><span class="muted">Agent</span> <span class="mono">{h.agent_version || "—"}</span></div>
+                          <div><span class="muted">Uptime</span> <span class="mono">{formatUptime(h.uptime_secs)}</span></div>
+                          <div><span class="muted">Memory</span> <span class="mono">{formatBytes(h.memory_used)} / {formatBytes(h.memory_total)}</span></div>
+                          <div><span class="muted">Disk</span> <span class="mono">{formatBytes(h.disk_used)} / {formatBytes(h.disk_total)}</span></div>
+                          <div><span class="muted">Net In</span> <span class="mono">{formatBytes(h.net_in_bytes)}/s</span></div>
+                          <div><span class="muted">Net Out</span> <span class="mono">{formatBytes(h.net_out_bytes)}/s</span></div>
+                        </div>
+
+                        {/* Sparklines */}
+                        {metrics.length > 0 && (
+                          <div class="sub-grid c2-even" style={{ marginTop: 12, maxWidth: 500 }}>
+                            {(
+                              [
+                                { title: "CPU History", key: "cpu_percent" as keyof HostMetric },
+                                { title: "Memory History", key: "memory_percent" as keyof HostMetric },
+                                { title: "Disk History", key: "disk_percent" as keyof HostMetric },
+                                { title: "Network I/O", key: "net_in_bytes" as keyof HostMetric },
+                              ] as const
+                            ).map((chart) => (
+                              <div key={chart.title} style={{ padding: "8px 0" }}>
+                                <small class="muted">{chart.title}</small>
+                                <svg
+                                  viewBox="0 0 200 40"
+                                  width="100%"
+                                  height="40"
+                                  preserveAspectRatio="none"
+                                  style={{ display: "block", marginTop: 4 }}
+                                >
+                                  <polyline
+                                    points={sparklinePoints(metrics, chart.key, 200, 40)}
+                                    fill="none"
+                                    stroke="var(--accent)"
+                                    stroke-width="1.5"
+                                  />
+                                </svg>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Linked projects */}
+                        {h.project_names && h.project_names.length > 0 && (
+                          <div style={{ marginTop: 12 }}>
+                            <small class="muted">Linked projects</small>
+                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+                              {h.project_names.map((p) => (
+                                <span class="pill" key={p}>{p}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                </>
+              );
+            })}
           </tbody>
         </table>
       </div>
